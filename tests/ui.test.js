@@ -80,6 +80,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
 });
@@ -95,8 +97,80 @@ describe('the email OTP view', () => {
     await flushPromises();
 
     expect(auth.requestOtp).toHaveBeenCalledWith('owner@example.com');
-    expect(document.querySelector('[name="token"]').hidden).toBe(false);
+    const otpInputs = [...document.querySelectorAll('[data-otp-index]')];
+    expect(otpInputs).toHaveLength(6);
+    expect(otpInputs.every(input => input.maxLength === 1)).toBe(true);
     expect(document.querySelector('[data-auth-message]').textContent).toContain('验证码已发送');
+  });
+
+  it('moves through six OTP boxes and verifies their joined value', async () => {
+    const auth = {
+      requestOtp: vi.fn().mockResolvedValue(),
+      verifyOtp: vi.fn().mockResolvedValue()
+    };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    const otpInputs = [...document.querySelectorAll('[data-otp-index]')];
+    otpInputs.forEach((input, index) => {
+      input.value = String(index + 1);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (index < 5) expect(document.activeElement).toBe(otpInputs[index + 1]);
+    });
+    click('[data-action="verify-otp"]');
+    await flushPromises();
+
+    expect(auth.verifyOtp).toHaveBeenCalledWith('owner@example.com', '123456');
+  });
+
+  it('distributes a pasted OTP and moves backward from an empty box', async () => {
+    const auth = { requestOtp: vi.fn().mockResolvedValue() };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    const otpInputs = [...document.querySelectorAll('[data-otp-index]')];
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', {
+      value: { getData: () => '12 34-56' }
+    });
+    otpInputs[0].dispatchEvent(pasteEvent);
+    expect(otpInputs.map(input => input.value)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(document.activeElement).toBe(otpInputs[5]);
+
+    otpInputs[5].value = '';
+    otpInputs[5].dispatchEvent(new Event('input', { bubbles: true }));
+    otpInputs[5].dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    expect(otpInputs[4].value).toBe('');
+    expect(document.activeElement).toBe(otpInputs[4]);
+  });
+
+  it('fills all boxes from the start without auto-submitting when a complete OTP is pasted into a middle box', async () => {
+    const auth = {
+      requestOtp: vi.fn().mockResolvedValue(),
+      verifyOtp: vi.fn().mockResolvedValue()
+    };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    const otpInputs = [...document.querySelectorAll('[data-otp-index]')];
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', {
+      value: { getData: () => '123456' }
+    });
+    otpInputs[2].dispatchEvent(pasteEvent);
+
+    expect(otpInputs.map(input => input.value)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(document.activeElement).toBe(otpInputs[5]);
+    expect(auth.verifyOtp).not.toHaveBeenCalled();
   });
 
   it('serializes OTP operations and keeps the email after verification fails', async () => {
@@ -119,13 +193,126 @@ describe('the email OTP view', () => {
     auth.requestOtp.mockResolvedValueOnce();
     click('[data-action="request-otp"]');
     await flushPromises();
-    document.querySelector('[name="token"]').value = '123456';
+    [...document.querySelectorAll('[data-otp-index]')].forEach((input, index) => {
+      input.value = String(index + 1);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     click('[data-action="verify-otp"]');
     await flushPromises();
 
     expect(auth.verifyOtp).toHaveBeenCalledWith('owner@example.com', '123456');
     expect(document.querySelector('[name="email"]').value).toBe('owner@example.com');
     expect(document.querySelector('[data-auth-message]').textContent).toBe('验证码已过期，请重新发送');
+  });
+
+  it('starts a 60-second resend countdown after sending an OTP', async () => {
+    vi.useFakeTimers();
+    const auth = { requestOtp: vi.fn().mockResolvedValue() };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    let resend = document.querySelector('[data-action="resend-otp"]');
+    expect(resend.disabled).toBe(true);
+    expect(resend.textContent).toBe('60 秒后可重新发送');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    resend = document.querySelector('[data-action="resend-otp"]');
+    expect(resend.textContent).toBe('59 秒后可重新发送');
+
+    await vi.advanceTimersByTimeAsync(59000);
+    resend = document.querySelector('[data-action="resend-otp"]');
+    expect(resend.disabled).toBe(false);
+    expect(resend.textContent).toBe('重新发送');
+
+    view.destroy();
+  });
+
+  it('uses elapsed time so a delayed browser timer does not extend the cooldown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-11T12:00:00Z'));
+    const auth = { requestOtp: vi.fn().mockResolvedValue() };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    vi.setSystemTime(new Date('2026-09-11T12:01:01Z'));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const resend = document.querySelector('[data-action="resend-otp"]');
+    expect(resend.disabled).toBe(false);
+    expect(resend.textContent).toBe('重新发送');
+
+    view.destroy();
+  });
+
+  it('suppresses another OTP request during the cooldown and clears its timer on destroy', async () => {
+    vi.useFakeTimers();
+    const auth = { requestOtp: vi.fn().mockResolvedValue() };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+    click('[data-action="resend-otp"]');
+
+    expect(auth.requestOtp).toHaveBeenCalledTimes(1);
+    const timersBeforeDestroy = vi.getTimerCount();
+    expect(timersBeforeDestroy).toBeGreaterThan(0);
+
+    view.destroy();
+    expect(vi.getTimerCount()).toBeLessThan(timersBeforeDestroy);
+  });
+
+  it('keeps a partially entered OTP while the resend countdown updates', async () => {
+    vi.useFakeTimers();
+    const auth = { requestOtp: vi.fn().mockResolvedValue() };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+    [...document.querySelectorAll('[data-otp-index]')].slice(0, 3).forEach((input, index) => {
+      input.value = String(index + 1);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect([...document.querySelectorAll('[data-otp-index]')].map(input => input.value).join('')).toBe('123');
+
+    view.destroy();
+  });
+
+  it('shows a 60-second retry message when Supabase rate-limits OTP sending', async () => {
+    vi.useFakeTimers();
+    const rateLimitError = Object.assign(
+      new Error('For security purposes, you can only request this after 60 seconds.'),
+      { status: 429 }
+    );
+    const auth = { requestOtp: vi.fn().mockRejectedValue(rateLimitError) };
+    const view = createAuthView(document.querySelector('#app'), auth);
+    view.show();
+
+    document.querySelector('[name="email"]').value = 'owner@example.com';
+    click('[data-action="request-otp"]');
+    await flushPromises();
+
+    const requestButton = document.querySelector('[data-action="request-otp"]');
+    expect(document.querySelector('[data-auth-message]').textContent)
+      .toBe('请求过于频繁，请在 60 秒后再试');
+    expect(requestButton.disabled).toBe(true);
+    expect(requestButton.textContent).toBe('60 秒后可重新发送');
+
+    view.destroy();
   });
 });
 

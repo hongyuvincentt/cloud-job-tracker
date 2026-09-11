@@ -129,6 +129,33 @@ p {
   display: none;
 }
 
+.otp-fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.otp-fieldset legend {
+  margin-bottom: 0.75rem;
+  color: #334155;
+  font-weight: 650;
+}
+
+.otp-input-group {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(0.35rem, 2vw, 0.65rem);
+}
+
+.otp-digit {
+  min-width: 0;
+  padding: 0.65rem 0.15rem;
+  text-align: center;
+  font-size: clamp(1.15rem, 5vw, 1.45rem);
+  font-weight: 700;
+}
+
 .eyebrow {
   margin-bottom: 0.35rem;
   color: #0369a1;
