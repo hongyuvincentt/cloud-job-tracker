@@ -320,31 +320,62 @@ export function createTrackerView(root, {
     root.innerHTML = `
       <main class="tracker-shell" aria-labelledby="tracker-title">
         <header class="app-header">
-          <div>
-            <p class="eyebrow">私有云端求职进度板</p>
-            <h1 id="tracker-title">求职进度</h1>
+          <div class="brand-lockup">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false"><path d="M8 7V5.8A1.8 1.8 0 0 1 9.8 4h4.4A1.8 1.8 0 0 1 16 5.8V7M5.5 7h13A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-9A1.5 1.5 0 0 1 5.5 7Zm-1.5 4.5c2.3 1 5 1.5 8 1.5s5.7-.5 8-1.5M12 12v2"/></svg>
+            </span>
+            <div>
+              <p class="brand-title">求职进度板</p>
+              <p class="brand-subtitle">记录每一次投递，也记住每一次成长</p>
+            </div>
           </div>
           <div class="header-actions">
             <span class="sync-status" data-sync-status aria-live="polite">${escapeHtml(syncState)}</span>
             ${reloadOnlyRetry ? '<button type="button" class="button-secondary" data-action="retry-reload">重新加载</button>' : ''}
-            <button type="button" class="button-secondary" data-action="export-backup"${exportDisabled}>导出备份</button>
-            <button type="button" class="button-secondary" data-action="sign-out">退出登录</button>
+            <button type="button" class="button-secondary header-button" data-action="export-backup"${exportDisabled}>
+              <span aria-hidden="true">↓</span> 导出备份
+            </button>
+            <button type="button" class="primary-button header-button" data-action="add-application"${mutationDisabled}>
+              <span aria-hidden="true">＋</span> 新增投递
+            </button>
+            <button type="button" class="quiet-button" data-action="sign-out">退出</button>
           </div>
         </header>
-        <section class="stats-grid" aria-label="投递统计">
-          <article><strong>${count.total}</strong><span>全部投递</span></article>
-          <article><strong>${count.interviewing}</strong><span>面试中</span></article>
-          <article><strong>${count.offered}</strong><span>已获录用</span></article>
-          <article><strong>${count.dueSoon}</strong><span>七天内待跟进</span></article>
+        <section class="tracker-hero">
+          <p class="eyebrow">你的求职进度，一目了然</p>
+          <h1 id="tracker-title">把每一次机会，看得更清楚</h1>
+          <p>从投递到面试，再到录用，让你的求职之路井然有序。</p>
         </section>
-        <section class="tracker-section" aria-labelledby="applications-title">
+        <section class="stats-grid" aria-label="求职概览">
+          <article data-metric="total">
+            <span class="metric-icon metric-icon-blue" aria-hidden="true">⌁</span>
+            <div><strong>${count.total}</strong><span class="metric-label">全部投递</span></div>
+          </article>
+          <article data-metric="interviewing">
+            <span class="metric-icon metric-icon-cyan" aria-hidden="true">···</span>
+            <div><strong>${count.interviewing}</strong><span class="metric-label">面试进行中</span></div>
+          </article>
+          <article data-metric="offered">
+            <span class="metric-icon metric-icon-green" aria-hidden="true">✓</span>
+            <div><strong>${count.offered}</strong><span class="metric-label">已获录用</span></div>
+          </article>
+          <article data-metric="due-soon">
+            <span class="metric-icon metric-icon-amber" aria-hidden="true">◷</span>
+            <div><strong>${count.dueSoon}</strong><span class="metric-label">7天内待跟进</span></div>
+          </article>
+        </section>
+        <nav class="section-tabs" aria-label="进度内容">
+          <a class="is-active" href="#applications-title">投递记录</a>
+          <a href="#interviews-title">面试问题与复盘</a>
+        </nav>
+        <section class="tracker-section applications-section" aria-labelledby="applications-title">
           <div class="section-heading">
             <div><h2 id="applications-title">投递记录</h2><p>按公司归组，始终按最近活动排序。</p></div>
-            <button type="button" data-action="add-application"${mutationDisabled}>新增投递</button>
+            <span class="sort-indicator" aria-label="当前排序">最近更新</span>
           </div>
           <div class="filters" aria-label="筛选投递记录">
-            <label>搜索岗位或公司<input name="search-query" type="search" value="${escapeAttribute(filters.query)}" placeholder="公司、岗位、标签或备注"></label>
-            <label>状态筛选<select name="status-filter"><option value="">全部状态</option>${statusOptions(filters.status)}</select></label>
+            <label class="search-field"><span class="visually-hidden">搜索岗位或公司</span><input name="search-query" type="search" value="${escapeAttribute(filters.query)}" placeholder="搜索公司、岗位、标签或备注"></label>
+            <label class="status-field"><span class="visually-hidden">状态筛选</span><select name="status-filter"><option value="">全部状态</option>${statusOptions(filters.status)}</select></label>
           </div>
           <div class="company-groups">${renderGroups()}</div>
         </section>

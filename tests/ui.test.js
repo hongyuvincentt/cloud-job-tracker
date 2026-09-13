@@ -317,6 +317,25 @@ describe('the email OTP view', () => {
 });
 
 describe('the grouped tracker view', () => {
+  it('renders the approved lightweight dashboard hierarchy without decorative artwork', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker(),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    expect(document.querySelector('#tracker-title').textContent).toBe('把每一次机会，看得更清楚');
+    expect(document.querySelector('.brand-title').textContent).toBe('求职进度板');
+    expect(document.querySelector('[aria-label="求职概览"]')).not.toBeNull();
+    expect([...document.querySelectorAll('[data-metric] .metric-label')].map(element => element.textContent))
+      .toEqual(['全部投递', '面试进行中', '已获录用', '7天内待跟进']);
+    expect([...document.querySelectorAll('.section-tabs a')].map(element => element.textContent.trim()))
+      .toEqual(['投递记录', '面试问题与复盘']);
+    expect(document.querySelector('.app-header [data-action="add-application"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('更好的自己');
+    expect(document.querySelector('.hero-illustration')).toBeNull();
+  });
+
   it('groups roles by company and orders groups and roles by newest activity', async () => {
     const view = createTrackerView(document.querySelector('#app'), {
       trackerService: createTracker(),
