@@ -324,7 +324,7 @@ describe('the grouped tracker view', () => {
     });
     await view.mount();
 
-    expect(document.querySelector('#tracker-title').textContent).toBe('把每一次机会，看得更清楚');
+    expect(document.querySelector('#tracker-title').textContent).toBe('每个岗位都一目了然');
     expect(document.querySelector('.brand-title').textContent).toBe('求职进度板');
     expect(document.querySelector('[aria-label="求职概览"]')).not.toBeNull();
     expect([...document.querySelectorAll('[data-metric] .metric-label')].map(element => element.textContent))

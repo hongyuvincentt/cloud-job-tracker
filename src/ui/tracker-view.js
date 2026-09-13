@@ -343,7 +343,7 @@ export function createTrackerView(root, {
         </header>
         <section class="tracker-hero">
           <p class="eyebrow">你的求职进度，一目了然</p>
-          <h1 id="tracker-title">把每一次机会，看得更清楚</h1>
+          <h1 id="tracker-title">每个岗位都一目了然</h1>
           <p>从投递到面试，再到录用，让你的求职之路井然有序。</p>
         </section>
         <section class="stats-grid" aria-label="求职概览">
