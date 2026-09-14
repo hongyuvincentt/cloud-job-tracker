@@ -317,6 +317,79 @@ describe('the email OTP view', () => {
 });
 
 describe('the grouped tracker view', () => {
+  function paginatedData() {
+    return {
+      applications: Array.from({ length: 7 }, (_, index) => ({
+        id: `company-${index + 1}`,
+        company: `Company ${index + 1}`,
+        companyKey: `company-${index + 1}`,
+        role: `岗位 ${index + 1}`,
+        status: index === 6 ? '面试中' : '已投递',
+        updatedAt: `2026-09-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+        tags: []
+      })).concat({
+        id: 'company-7-second-role',
+        company: 'Company 7',
+        companyKey: 'company-7',
+        role: '岗位 7B',
+        status: '面试中',
+        updatedAt: '2026-09-07T09:00:00Z',
+        tags: []
+      }),
+      interviews: [{
+        id: 'interview-1',
+        applicationId: 'company-7',
+        date: '2026-09-08',
+        stage: '一面',
+        questions: '请介绍一个最有挑战的项目'
+      }],
+      statusHistory: []
+    };
+  }
+
+  it('paginates by five company groups without hiding the interview review section', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    expect([...document.querySelectorAll('[data-company-key]')].map(element => element.dataset.companyKey))
+      .toEqual(['company-7', 'company-6', 'company-5', 'company-4', 'company-3']);
+    expect(document.querySelectorAll('[data-company-key="company-7"] [data-application-id]')).toHaveLength(2);
+    expect(document.querySelector('[data-pagination-summary]').textContent).toContain('共 8 个岗位 · 7 家公司');
+    expect(document.querySelector('[data-interview-id="interview-1"]')).not.toBeNull();
+    expect(document.querySelector('[data-pagination]').compareDocumentPosition(document.querySelector('#interviews-title'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    click('[data-action="page-next"]');
+
+    expect([...document.querySelectorAll('[data-company-key]')].map(element => element.dataset.companyKey))
+      .toEqual(['company-2', 'company-1']);
+    expect(document.querySelector('[data-page-position]').textContent).toContain('第 2 / 2 页');
+  });
+
+  it('supports jumping to a page and resets pagination after filtering', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const jumpForm = document.querySelector('[data-form="pagination-jump"]');
+    jumpForm.querySelector('[name="page-number"]').value = '2';
+    jumpForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(document.querySelector('[data-company-key="company-2"]')).not.toBeNull();
+
+    const search = document.querySelector('[name="search-query"]');
+    search.value = 'Company 7';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(document.querySelector('[data-company-key="company-7"]')).not.toBeNull();
+    expect(document.querySelector('[data-page-position]').textContent).toContain('第 1 / 1 页');
+    expect(document.querySelector('[data-pagination-summary]').textContent).toContain('共 2 个岗位 · 1 家公司');
+  });
+
   it('renders the approved lightweight dashboard hierarchy without decorative artwork', async () => {
     const view = createTrackerView(document.querySelector('#app'), {
       trackerService: createTracker(),

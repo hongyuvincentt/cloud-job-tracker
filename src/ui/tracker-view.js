@@ -3,6 +3,7 @@ import { getDueMeta } from '../lib/dates.js';
 import { downloadBackup as downloadCloudBackup } from '../lib/export.js';
 
 const STATUSES = ['准备投递', '已投递', '笔试', '面试中', '已录用', '已拒绝', '已放弃'];
+const COMPANY_GROUPS_PER_PAGE = 5;
 
 function escapeHtml(value = '') {
   return String(value ?? '')
@@ -106,6 +107,7 @@ export function createTrackerView(root, {
   let syncState = '正在加载…';
   let reloadOnlyRetry = false;
   let filters = { query: '', status: '' };
+  let currentPage = 1;
   let modal = null;
   const documentRef = root.ownerDocument;
 
@@ -158,8 +160,7 @@ export function createTrackerView(root, {
       </article>`;
   }
 
-  function renderGroups() {
-    const groups = filteredGroups();
+  function renderGroups(groups) {
     if (!groups.length) {
       return '<p class="empty-state">没有匹配的投递记录。</p>';
     }
@@ -175,6 +176,45 @@ export function createTrackerView(root, {
         </header>
         <div class="role-list">${group.applications.map(renderRole).join('')}</div>
       </section>`).join('');
+  }
+
+  function paginationItems(pageCount) {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    const pages = [...new Set([1, currentPage - 1, currentPage, currentPage + 1, pageCount])]
+      .filter(page => page >= 1 && page <= pageCount)
+      .sort((a, b) => a - b);
+    const items = [];
+    pages.forEach((page, index) => {
+      if (index && page - pages[index - 1] > 1) items.push(`ellipsis-${page}`);
+      items.push(page);
+    });
+    return items;
+  }
+
+  function renderPagination(groups, pageCount) {
+    if (!groups.length) return '';
+    const applicationCount = groups.reduce((total, group) => total + group.applications.length, 0);
+    const pageButtons = paginationItems(pageCount).map(item => {
+      if (typeof item === 'string') return '<span class="page-ellipsis" aria-hidden="true">…</span>';
+      return `<button type="button" class="page-button${item === currentPage ? ' is-current' : ''}" data-action="set-page" data-page="${item}" aria-label="第 ${item} 页"${item === currentPage ? ' aria-current="page"' : ''}>${item}</button>`;
+    }).join('');
+    return `
+      <nav class="pagination" data-pagination aria-label="投递记录分页">
+        <p class="pagination-summary" data-pagination-summary>共 ${applicationCount} 个岗位 · ${groups.length} 家公司</p>
+        <div class="pagination-actions">
+          <div class="pagination-controls">
+            <button type="button" class="page-button page-step" data-action="page-previous"${currentPage === 1 ? ' disabled' : ''}>上一页</button>
+            <span class="page-numbers">${pageButtons}</span>
+            <span class="page-position" data-page-position>第 ${currentPage} / ${pageCount} 页</span>
+            <button type="button" class="page-button page-step" data-action="page-next"${currentPage === pageCount ? ' disabled' : ''}>下一页</button>
+          </div>
+          <form class="pagination-jump" data-form="pagination-jump">
+            <label for="page-number">跳至</label>
+            <input id="page-number" name="page-number" type="number" inputmode="numeric" min="1" max="${pageCount}" aria-label="跳转页码">
+            <button type="submit" class="page-button">跳转</button>
+          </form>
+        </div>
+      </nav>`;
   }
 
   function renderInterview(interview) {
@@ -315,6 +355,11 @@ export function createTrackerView(root, {
   function render() {
     if (destroyed) return;
     const count = stats();
+    const groups = filteredGroups();
+    const pageCount = Math.max(1, Math.ceil(groups.length / COMPANY_GROUPS_PER_PAGE));
+    currentPage = Math.min(Math.max(currentPage, 1), pageCount);
+    const pageStart = (currentPage - 1) * COMPANY_GROUPS_PER_PAGE;
+    const visibleGroups = groups.slice(pageStart, pageStart + COMPANY_GROUPS_PER_PAGE);
     const mutationDisabled = initialLoading ? ' disabled' : '';
     const exportDisabled = initialLoading ? ' disabled' : '';
     root.innerHTML = `
@@ -377,7 +422,8 @@ export function createTrackerView(root, {
             <label class="search-field"><span class="visually-hidden">搜索岗位或公司</span><input name="search-query" type="search" value="${escapeAttribute(filters.query)}" placeholder="搜索公司、岗位、标签或备注"></label>
             <label class="status-field"><span class="visually-hidden">状态筛选</span><select name="status-filter"><option value="">全部状态</option>${statusOptions(filters.status)}</select></label>
           </div>
-          <div class="company-groups">${renderGroups()}</div>
+          <div class="company-groups">${renderGroups(visibleGroups)}</div>
+          ${renderPagination(groups, pageCount)}
         </section>
         <section class="tracker-section" aria-labelledby="interviews-title">
           <div class="section-heading">
@@ -608,6 +654,9 @@ export function createTrackerView(root, {
     const interview = data.interviews.find(item => item.id === control.dataset.id);
 
     switch (control.dataset.action) {
+      case 'page-previous': currentPage = Math.max(1, currentPage - 1); render(); break;
+      case 'page-next': currentPage += 1; render(); break;
+      case 'set-page': currentPage = Number(control.dataset.page) || 1; render(); break;
       case 'add-application': openApplication(); break;
       case 'edit-application': if (application) openApplication(application); break;
       case 'view-application': if (application) openDetails(application); break;
@@ -626,6 +675,7 @@ export function createTrackerView(root, {
   function onInput(event) {
     if (event.target.name === 'search-query') {
       filters.query = event.target.value;
+      currentPage = 1;
       render();
       root.querySelector('[name="search-query"]')?.focus();
     }
@@ -634,6 +684,7 @@ export function createTrackerView(root, {
   function onChange(event) {
     if (event.target.name === 'status-filter') {
       filters.status = event.target.value;
+      currentPage = 1;
       render();
       root.querySelector('[name="status-filter"]')?.focus();
     }
@@ -643,6 +694,12 @@ export function createTrackerView(root, {
     const form = event.target.closest('form[data-form]');
     if (!form || !root.contains(form)) return;
     event.preventDefault();
+    if (form.dataset.form === 'pagination-jump') {
+      const requestedPage = Number(form.elements['page-number'].value);
+      if (Number.isFinite(requestedPage)) currentPage = Math.max(1, Math.floor(requestedPage));
+      render();
+      return;
+    }
     saveForm(form);
   }
 
