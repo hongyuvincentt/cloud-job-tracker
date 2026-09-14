@@ -139,7 +139,7 @@ h1, h2, h3, p { margin-top: 0; }
 .header-actions { justify-content: flex-end; }
 .sync-status { color: #86868b; font-size: 0.82rem; white-space: nowrap; }
 
-.tracker-hero { padding: clamp(2.6rem, 7vw, 5rem) 0 1.5rem; }
+.tracker-hero { padding: clamp(2.2rem, 4vw, 3.5rem) 0 1.5rem; }
 .tracker-hero h1 { max-width: none; margin-bottom: 1rem; font-size: clamp(2rem, 4vw, 4rem); line-height: 1.04; letter-spacing: -0.055em; white-space: nowrap; }
 .tracker-hero > p:last-child { max-width: 680px; margin-bottom: 0; color: #6e6e73; font-size: clamp(1rem, 2vw, 1.28rem); line-height: 1.55; }
 
