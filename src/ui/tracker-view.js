@@ -11,6 +11,7 @@ import { downloadBackup as downloadCloudBackup } from '../lib/export.js';
 
 const STATUSES = ['准备投递', '已投递', '笔试', '面试中', '已录用', '已拒绝', '已放弃'];
 const COMPANY_GROUPS_PER_PAGE = 5;
+const INTERVIEWS_PER_PAGE = 5;
 
 function escapeHtml(value = '') {
   return String(value ?? '')
@@ -118,6 +119,9 @@ export function createTrackerView(root, {
   let reloadOnlyRetry = false;
   let filters = { query: '', status: '' };
   let currentPage = 1;
+  let activePanel = 'applications';
+  let interviewFilters = { query: '', stage: '' };
+  let interviewPage = 1;
   let checkinFeedback = '';
   let goalRefreshTimer = null;
   let modal = null;
@@ -138,6 +142,33 @@ export function createTrackerView(root, {
       return matchesStatus && matchesQuery;
     });
     return groupApplications(visibleApplications);
+  }
+
+  function filteredInterviews() {
+    const query = interviewFilters.query.trim().toLocaleLowerCase();
+    return data.interviews.filter(interview => {
+      const application = data.applications.find(item => item.id === interview.applicationId);
+      const matchesStage = !interviewFilters.stage || interview.stage === interviewFilters.stage;
+      const matchesQuery = !query || [
+        application?.company,
+        application?.role,
+        interview.stage,
+        interview.questions,
+        interview.highlights,
+        interview.gaps,
+        interview.nextPlan,
+        interview.feedback
+      ].some(value => String(value ?? '').toLocaleLowerCase().includes(query));
+      return matchesStage && matchesQuery;
+    });
+  }
+
+  function interviewStageOptions() {
+    const stages = [...new Set(data.interviews.map(interview => String(interview.stage ?? '').trim()).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+    return stages.map(stage =>
+      `<option value="${escapeAttribute(stage)}" ${stage === interviewFilters.stage ? 'selected' : ''}>${escapeHtml(stage)}</option>`
+    ).join('');
   }
 
   function stats() {
@@ -297,18 +328,37 @@ export function createTrackerView(root, {
       ? '未评分'
       : `${interview.rating}/5`;
     const mutationDisabled = initialLoading ? ' disabled' : '';
+    const summary = interview.highlights || interview.gaps || interview.nextPlan || interview.feedback || '尚未填写复盘总结';
     return `
       <article class="interview-card" data-interview-id="${escapeAttribute(interview.id)}">
-        <div>
-          <h3>${escapeHtml(company)} · ${escapeHtml(role)}</h3>
-          <p class="interview-meta">${escapeHtml(interview.stage || '面试轮次未填写')} · ${formatDate(interview.date)} · 自评 ${escapeHtml(rating)}</p>
-          <p><strong>问题：</strong>${escapeHtml(truncate(interview.questions))}</p>
+        <div class="interview-main">
+          <div class="interview-title-row">
+            <h3>${escapeHtml(company)} · ${escapeHtml(role)}</h3>
+            <span class="review-badge">${escapeHtml(interview.stage || '面试轮次未填写')}复盘</span>
+          </div>
+          <p class="interview-meta">${formatDate(interview.date)} · 自评 ${escapeHtml(rating)}</p>
+          <p><strong>面试问题：</strong>${escapeHtml(truncate(interview.questions))}</p>
+          <p><strong>复盘总结：</strong>${escapeHtml(truncate(summary))}</p>
         </div>
         <div class="card-actions" aria-label="面试操作">
+          <button type="button" class="button-link" data-action="view-interview" data-id="${escapeAttribute(interview.id)}"${mutationDisabled}>详情</button>
           <button type="button" class="button-link" data-action="edit-interview" data-id="${escapeAttribute(interview.id)}"${mutationDisabled}>编辑</button>
           <button type="button" class="button-link danger-link" data-action="delete-interview" data-id="${escapeAttribute(interview.id)}"${mutationDisabled}>删除</button>
         </div>
       </article>`;
+  }
+
+  function renderInterviewPagination(interviews, pageCount) {
+    if (interviews.length <= INTERVIEWS_PER_PAGE) return '';
+    return `
+      <nav class="pagination" data-interview-pagination aria-label="面试复盘分页">
+        <p class="pagination-summary" data-interview-pagination-summary>共 ${interviews.length} 条复盘</p>
+        <div class="pagination-controls">
+          <button type="button" class="page-button page-step" data-action="interview-page-previous"${interviewPage === 1 ? ' disabled' : ''}>上一页</button>
+          <span class="page-position interview-page-position" data-interview-page-position>第 ${interviewPage} / ${pageCount} 页</span>
+          <button type="button" class="page-button page-step" data-action="interview-page-next"${interviewPage === pageCount ? ' disabled' : ''}>下一页</button>
+        </div>
+      </nav>`;
   }
 
   function renderApplicationModal(form) {
@@ -416,11 +466,39 @@ export function createTrackerView(root, {
       </section>`;
   }
 
+  function renderInterviewDetailsModal(interview) {
+    const application = data.applications.find(item => item.id === interview.applicationId);
+    return `
+      <section class="modal-backdrop" data-modal-backdrop>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="interview-details-title">
+          <header class="modal-header">
+            <div>
+              <h2 id="interview-details-title">面试复盘详情</h2>
+              <p class="interview-meta">${escapeHtml(application?.company ?? '关联岗位已删除')} · ${escapeHtml(application?.role ?? '未知岗位')} · ${escapeHtml(interview.stage || '轮次未填写')} · ${formatDate(interview.date)}</p>
+            </div>
+            <button type="button" class="icon-button" data-action="close-modal" aria-label="关闭">×</button>
+          </header>
+          <div class="details-content review-details">
+            <p><strong>面试问题：</strong>${escapeHtml(interview.questions || '未填写')}</p>
+            <p><strong>回答与亮点：</strong>${escapeHtml(interview.highlights || '未填写')}</p>
+            <p><strong>卡点与不足：</strong>${escapeHtml(interview.gaps || '未填写')}</p>
+            <p><strong>下一步改进：</strong>${escapeHtml(interview.nextPlan || '未填写')}</p>
+            <p><strong>结果或反馈：</strong>${escapeHtml(interview.feedback || '未填写')}</p>
+          </div>
+          <footer class="modal-actions">
+            <button type="button" class="button-secondary" data-action="close-modal">关闭</button>
+            <button type="button" data-action="edit-interview" data-id="${escapeAttribute(interview.id)}">编辑复盘</button>
+          </footer>
+        </div>
+      </section>`;
+  }
+
   function renderModal() {
     if (!modal) return '';
     if (modal.type === 'application') return renderApplicationModal(modal.form);
     if (modal.type === 'interview') return renderInterviewModal(modal.form);
     if (modal.type === 'details') return renderDetailsModal(modal.application);
+    if (modal.type === 'interview-details') return renderInterviewDetailsModal(modal.interview);
     return '';
   }
 
@@ -432,6 +510,11 @@ export function createTrackerView(root, {
     currentPage = Math.min(Math.max(currentPage, 1), pageCount);
     const pageStart = (currentPage - 1) * COMPANY_GROUPS_PER_PAGE;
     const visibleGroups = groups.slice(pageStart, pageStart + COMPANY_GROUPS_PER_PAGE);
+    const interviews = filteredInterviews();
+    const interviewPageCount = Math.max(1, Math.ceil(interviews.length / INTERVIEWS_PER_PAGE));
+    interviewPage = Math.min(Math.max(interviewPage, 1), interviewPageCount);
+    const interviewPageStart = (interviewPage - 1) * INTERVIEWS_PER_PAGE;
+    const visibleInterviews = interviews.slice(interviewPageStart, interviewPageStart + INTERVIEWS_PER_PAGE);
     const mutationDisabled = initialLoading ? ' disabled' : '';
     const exportDisabled = initialLoading ? ' disabled' : '';
     root.innerHTML = `
@@ -484,28 +567,36 @@ export function createTrackerView(root, {
             <div><strong>${count.dueSoon}</strong><span class="metric-label">7天内待跟进</span></div>
           </article>
         </section>
-        <nav class="section-tabs" aria-label="进度内容">
-          <a class="is-active" href="#applications-title">投递记录</a>
-          <a href="#interviews-title">面试问题与复盘</a>
-        </nav>
-        <section class="tracker-section applications-section" aria-labelledby="applications-title">
-          <div class="section-heading">
-            <div><h2 id="applications-title">投递记录</h2><p>按公司归组，始终按最近活动排序。</p></div>
-            <span class="sort-indicator" aria-label="当前排序">最近更新</span>
+        <section class="tracker-section content-section" aria-label="求职记录">
+          <div class="section-heading content-heading">
+            <div>
+              <div class="content-switch" role="tablist" aria-label="记录类型">
+                <button id="applications-tab" type="button" role="tab" class="content-switch-button${activePanel === 'applications' ? ' is-active' : ''}" data-action="switch-panel" data-panel="applications" aria-selected="${activePanel === 'applications'}" aria-controls="applications-panel" tabindex="${activePanel === 'applications' ? '0' : '-1'}">投递记录</button>
+                <button id="interviews-tab" type="button" role="tab" class="content-switch-button${activePanel === 'interviews' ? ' is-active' : ''}" data-action="switch-panel" data-panel="interviews" aria-selected="${activePanel === 'interviews'}" aria-controls="interviews-panel" tabindex="${activePanel === 'interviews' ? '0' : '-1'}">面试问题与复盘</button>
+              </div>
+              <p>${activePanel === 'applications' ? '按公司归组，始终按最近活动排序。' : '记录面试问题、回答思路与复盘总结。'}</p>
+            </div>
+            ${activePanel === 'applications'
+              ? '<span class="sort-indicator" aria-label="当前排序">最近更新</span>'
+              : `<button type="button" class="panel-primary-action" data-action="add-interview"${mutationDisabled}><span aria-hidden="true">＋</span> 新增复盘</button>`}
           </div>
-          <div class="filters" aria-label="筛选投递记录">
-            <label class="search-field"><span class="visually-hidden">搜索岗位或公司</span><input name="search-query" type="search" value="${escapeAttribute(filters.query)}" placeholder="搜索公司、岗位、标签或备注"></label>
-            <label class="status-field"><span class="visually-hidden">状态筛选</span><select name="status-filter"><option value="">全部状态</option>${statusOptions(filters.status)}</select></label>
-          </div>
-          <div class="company-groups">${renderGroups(visibleGroups)}</div>
-          ${renderPagination(groups, pageCount)}
-        </section>
-        <section class="tracker-section" aria-labelledby="interviews-title">
-          <div class="section-heading">
-            <div><h2 id="interviews-title">面试问题与复盘</h2><p>记录问题、亮点与下一次改进。</p></div>
-            <button type="button" data-action="add-interview"${mutationDisabled}>新增面试复盘</button>
-          </div>
-          <div class="interview-list">${data.interviews.length ? data.interviews.map(renderInterview).join('') : '<p class="empty-state">暂无面试复盘。</p>'}</div>
+          ${activePanel === 'applications' ? `
+            <div id="applications-panel" data-panel-content="applications" role="tabpanel" aria-labelledby="applications-tab">
+              <div class="filters" aria-label="筛选投递记录">
+                <label class="search-field"><span class="visually-hidden">搜索岗位或公司</span><input name="search-query" type="search" value="${escapeAttribute(filters.query)}" placeholder="搜索公司、岗位、标签或备注"></label>
+                <label class="status-field"><span class="visually-hidden">状态筛选</span><select name="status-filter"><option value="">全部状态</option>${statusOptions(filters.status)}</select></label>
+              </div>
+              <div class="company-groups">${renderGroups(visibleGroups)}</div>
+              ${renderPagination(groups, pageCount)}
+            </div>` : `
+            <div id="interviews-panel" data-panel-content="interviews" role="tabpanel" aria-labelledby="interviews-tab">
+              <div class="filters" aria-label="筛选面试复盘">
+                <label class="search-field"><span class="visually-hidden">搜索面试复盘</span><input name="interview-search-query" type="search" value="${escapeAttribute(interviewFilters.query)}" placeholder="搜索公司、岗位或面试问题"></label>
+                <label class="status-field"><span class="visually-hidden">面试轮次筛选</span><select name="interview-stage-filter"><option value="">全部复盘</option>${interviewStageOptions()}</select></label>
+              </div>
+              <div class="interview-list">${visibleInterviews.length ? visibleInterviews.map(renderInterview).join('') : '<p class="empty-state">暂无匹配的面试复盘。</p>'}</div>
+              ${renderInterviewPagination(interviews, interviewPageCount)}
+            </div>`}
         </section>
       </main>
       ${renderModal()}`;
@@ -528,6 +619,8 @@ export function createTrackerView(root, {
     }
     if (generation !== loadGeneration || destroyed) return false;
     data = nextData;
+    const availableStages = new Set(data.interviews.map(interview => String(interview.stage ?? '').trim()).filter(Boolean));
+    if (interviewFilters.stage && !availableStages.has(interviewFilters.stage)) interviewFilters.stage = '';
     reloadOnlyRetry = false;
     return true;
   }
@@ -641,6 +734,13 @@ export function createTrackerView(root, {
     root.querySelector('[data-action="close-modal"]')?.focus();
   }
 
+  function openInterviewDetails(interview) {
+    if (mutationInFlight) return;
+    modal = { type: 'interview-details', interview };
+    render();
+    root.querySelector('[data-action="close-modal"]')?.focus();
+  }
+
   function closeModal() {
     if (mutationInFlight) return;
     modal = null;
@@ -674,6 +774,7 @@ export function createTrackerView(root, {
   async function saveForm(form) {
     if (mutationInFlight || destroyed) return;
     const values = valuesFromForm(form);
+    const savedKind = form.dataset.form;
     const formError = form.querySelector('[data-form-error]');
     if (form.dataset.form === 'application' && (!values.company || !values.role)) {
       formError.textContent = '请填写公司和岗位名称';
@@ -692,6 +793,7 @@ export function createTrackerView(root, {
       if (form.dataset.form === 'application') await trackerService.saveApplication(values);
       else await trackerService.saveInterview(values);
       if (destroyed) return;
+      if (savedKind === 'interview') activePanel = 'interviews';
     } catch {
       if (destroyed) return;
       setSubmitting(form, false);
@@ -810,6 +912,7 @@ export function createTrackerView(root, {
       'view-application',
       'delete-application',
       'add-interview',
+      'view-interview',
       'edit-interview',
       'delete-interview',
       'export-backup'
@@ -819,14 +922,24 @@ export function createTrackerView(root, {
     const interview = data.interviews.find(item => item.id === control.dataset.id);
 
     switch (control.dataset.action) {
+      case 'switch-panel':
+        if (control.dataset.panel === 'applications' || control.dataset.panel === 'interviews') {
+          activePanel = control.dataset.panel;
+          render();
+          root.querySelector(`[data-action="switch-panel"][data-panel="${activePanel}"]`)?.focus();
+        }
+        break;
       case 'page-previous': currentPage = Math.max(1, currentPage - 1); render(); break;
       case 'page-next': currentPage += 1; render(); break;
       case 'set-page': currentPage = Number(control.dataset.page) || 1; render(); break;
+      case 'interview-page-previous': interviewPage = Math.max(1, interviewPage - 1); render(); break;
+      case 'interview-page-next': interviewPage += 1; render(); break;
       case 'add-application': openApplication(); break;
       case 'edit-application': if (application) openApplication(application); break;
       case 'view-application': if (application) openDetails(application); break;
       case 'delete-application': deleteRecord('application', control.dataset.id); break;
       case 'add-interview': openInterview(undefined, control.dataset.prefillApplicationId); break;
+      case 'view-interview': if (interview) openInterviewDetails(interview); break;
       case 'edit-interview': if (interview) openInterview(interview); break;
       case 'delete-interview': deleteRecord('interview', control.dataset.id); break;
       case 'close-modal': closeModal(); break;
@@ -844,6 +957,12 @@ export function createTrackerView(root, {
       render();
       root.querySelector('[name="search-query"]')?.focus();
     }
+    if (event.target.name === 'interview-search-query') {
+      interviewFilters.query = event.target.value;
+      interviewPage = 1;
+      render();
+      root.querySelector('[name="interview-search-query"]')?.focus();
+    }
   }
 
   function onChange(event) {
@@ -852,6 +971,12 @@ export function createTrackerView(root, {
       currentPage = 1;
       render();
       root.querySelector('[name="status-filter"]')?.focus();
+    }
+    if (event.target.name === 'interview-stage-filter') {
+      interviewFilters.stage = event.target.value;
+      interviewPage = 1;
+      render();
+      root.querySelector('[name="interview-stage-filter"]')?.focus();
     }
   }
 
@@ -877,6 +1002,15 @@ export function createTrackerView(root, {
   }
 
   function onKeydown(event) {
+    const panelSwitch = event.target.closest?.('[data-action="switch-panel"]');
+    if (panelSwitch && root.contains(panelSwitch) && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const nextPanel = event.key === 'ArrowRight' || event.key === 'End' ? 'interviews' : 'applications';
+      activePanel = nextPanel;
+      render();
+      root.querySelector(`[data-action="switch-panel"][data-panel="${nextPanel}"]`)?.focus();
+      return;
+    }
     if (event.key === 'Escape' && modal) {
       event.preventDefault();
       closeModal();
