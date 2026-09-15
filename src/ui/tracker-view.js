@@ -1,4 +1,11 @@
 import { groupApplications } from '../lib/company.js';
+import {
+  chinaDateKey,
+  chinaHour,
+  countApplicationsForChinaDate,
+  currentCheckinStreak,
+  goalMessage
+} from '../lib/checkins.js';
 import { getDueMeta } from '../lib/dates.js';
 import { downloadBackup as downloadCloudBackup } from '../lib/export.js';
 
@@ -46,14 +53,17 @@ function statusOptions(selected = '') {
 }
 
 function emptyData() {
-  return { applications: [], interviews: [], statusHistory: [] };
+  return { applications: [], interviews: [], statusHistory: [], dailyGoal: 3, checkins: [], checkinsAvailable: true };
 }
 
 function normalizeData(data) {
   return {
     applications: Array.isArray(data?.applications) ? data.applications : [],
     interviews: Array.isArray(data?.interviews) ? data.interviews : [],
-    statusHistory: Array.isArray(data?.statusHistory) ? data.statusHistory : []
+    statusHistory: Array.isArray(data?.statusHistory) ? data.statusHistory : [],
+    dailyGoal: Number.isInteger(Number(data?.dailyGoal)) ? Number(data.dailyGoal) : 3,
+    checkins: Array.isArray(data?.checkins) ? data.checkins : [],
+    checkinsAvailable: data?.checkinsAvailable !== false
   };
 }
 
@@ -108,6 +118,8 @@ export function createTrackerView(root, {
   let reloadOnlyRetry = false;
   let filters = { query: '', status: '' };
   let currentPage = 1;
+  let checkinFeedback = '';
+  let goalRefreshTimer = null;
   let modal = null;
   const documentRef = root.ownerDocument;
 
@@ -135,6 +147,66 @@ export function createTrackerView(root, {
       offered: data.applications.filter(application => application.status === '已录用').length,
       dueSoon: data.applications.filter(application => getDueMeta(application.nextDate).state === 'soon').length
     };
+  }
+
+  function previousDateKey(dateKey) {
+    const date = new Date(`${dateKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - 1);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function dailyGoalSnapshot(now = new Date()) {
+    const today = chinaDateKey(now);
+    const target = Math.min(99, Math.max(1, Number(data.dailyGoal) || 3));
+    const completed = countApplicationsForChinaDate(data.applications, today);
+    const checkedIn = data.checkins.some(checkin => checkin.checkinDate === today);
+    const message = checkedIn
+      ? { tone: 'complete', text: '今日目标完成，打卡已记录。继续保持！' }
+      : goalMessage({ completed, target, chinaHour: chinaHour(now) });
+    return {
+      today,
+      target,
+      completed,
+      checkedIn,
+      message,
+      streak: currentCheckinStreak(data.checkins, today)
+    };
+  }
+
+  function renderDailyGoal() {
+    const goal = dailyGoalSnapshot();
+    const progress = Math.min(100, Math.round((goal.completed / goal.target) * 100));
+    const unavailable = data.checkinsAvailable ? '' : ' disabled';
+    const feedback = data.checkinsAvailable
+      ? checkinFeedback
+      : '请先完成 Supabase 初始化，再启用云端打卡';
+    return `
+      <section class="daily-goal-card" data-daily-goal data-tone="${goal.message.tone}" aria-labelledby="daily-goal-title">
+        <div class="daily-goal-main">
+          <div class="daily-goal-heading">
+            <div>
+              <p class="goal-kicker">今日投递目标 · 中国时间</p>
+              <h2 id="daily-goal-title">今天完成 <strong data-goal-progress>${goal.completed}/${goal.target}</strong></h2>
+            </div>
+            <span class="streak-pill" data-checkin-streak>连续打卡 ${goal.streak} 天</span>
+          </div>
+          <div class="goal-progress" aria-label="今日投递进度 ${goal.completed}/${goal.target}"><span style="width:${progress}%"></span></div>
+          <p class="goal-message" data-goal-message>${escapeHtml(goal.message.text)}</p>
+        </div>
+        <div class="daily-goal-tools">
+          <form data-form="daily-goal" class="goal-form">
+            <label for="daily-target">每日目标</label>
+            <input id="daily-target" name="daily-target" type="number" inputmode="numeric" min="1" max="99" required value="${goal.target}">
+            <button type="submit" class="button-secondary"${unavailable}>更新</button>
+          </form>
+          <form data-form="makeup-checkin" class="goal-form makeup-form">
+            <label for="makeup-date">历史补签</label>
+            <input id="makeup-date" name="makeup-date" type="date" max="${previousDateKey(goal.today)}" required>
+            <button type="submit" class="button-secondary"${unavailable}>补签</button>
+          </form>
+          <p class="checkin-feedback" data-checkin-feedback aria-live="polite">${escapeHtml(feedback)}</p>
+        </div>
+      </section>`;
   }
 
   function renderRole(application) {
@@ -409,6 +481,7 @@ export function createTrackerView(root, {
             <div><strong>${count.dueSoon}</strong><span class="metric-label">7天内待跟进</span></div>
           </article>
         </section>
+        ${renderDailyGoal()}
         <nav class="section-tabs" aria-label="进度内容">
           <a class="is-active" href="#applications-title">投递记录</a>
           <a href="#interviews-title">面试问题与复盘</a>
@@ -455,6 +528,94 @@ export function createTrackerView(root, {
     data = nextData;
     reloadOnlyRetry = false;
     return true;
+  }
+
+  function ensureAutomaticCheckin() {
+    const goal = dailyGoalSnapshot();
+    if (!data.checkinsAvailable || goal.checkedIn || goal.completed < goal.target || destroyed) return null;
+    return trackerService.saveCheckin({
+      checkinDate: goal.today,
+      goalTarget: goal.target,
+      completedCount: goal.completed,
+      source: 'automatic'
+    }).then(checkin => {
+      data.checkins = [checkin, ...data.checkins.filter(item => item.checkinDate !== goal.today)];
+    });
+  }
+
+  async function saveDailyGoal(form) {
+    if (mutationInFlight || destroyed) return;
+    const target = Number(form.elements['daily-target'].value);
+    if (!Number.isInteger(target) || target < 1 || target > 99) {
+      checkinFeedback = '每日目标需为 1–99 之间的整数';
+      render();
+      return;
+    }
+    mutationInFlight = true;
+    setSync('正在同步');
+    try {
+      data.dailyGoal = await trackerService.saveDailyGoal(target);
+      const automaticCheckin = ensureAutomaticCheckin();
+      if (automaticCheckin) await automaticCheckin;
+      checkinFeedback = '每日目标已更新';
+      syncState = '已同步';
+      render();
+    } catch {
+      checkinFeedback = '目标同步失败，请重试';
+      setSync('同步失败，请重试');
+      render();
+    } finally {
+      mutationInFlight = false;
+    }
+  }
+
+  async function saveMakeupCheckin(form) {
+    if (mutationInFlight || destroyed) return;
+    const checkinDate = form.elements['makeup-date'].value;
+    const goal = dailyGoalSnapshot();
+    if (!checkinDate || checkinDate >= goal.today) {
+      checkinFeedback = '请选择今天之前的日期进行补签';
+      render();
+      return;
+    }
+    mutationInFlight = true;
+    setSync('正在同步');
+    try {
+      const checkin = await trackerService.saveCheckin({
+        checkinDate,
+        goalTarget: goal.target,
+        completedCount: goal.target,
+        source: 'makeup'
+      });
+      data.checkins = [checkin, ...data.checkins.filter(item => item.checkinDate !== checkinDate)];
+      checkinFeedback = `${checkinDate} 已补签`;
+      syncState = '已同步';
+      render();
+    } catch {
+      checkinFeedback = '补签同步失败，请重试';
+      setSync('同步失败，请重试');
+      render();
+    } finally {
+      mutationInFlight = false;
+    }
+  }
+
+  function scheduleGoalRefresh() {
+    if (goalRefreshTimer) clearTimeout(goalRefreshTimer);
+    const now = new Date();
+    const today = chinaDateKey(now);
+    const boundaries = [
+      Date.parse(`${today}T12:00:00Z`),
+      Date.parse(`${today}T14:00:00Z`),
+      Date.parse(`${today}T16:00:00Z`)
+    ];
+    const nextBoundary = boundaries.find(timestamp => timestamp > now.valueOf())
+      ?? boundaries[0] + 24 * 60 * 60 * 1000;
+    goalRefreshTimer = setTimeout(() => {
+      if (destroyed) return;
+      render();
+      scheduleGoalRefresh();
+    }, Math.max(1, nextBoundary - now.valueOf()));
   }
 
   function openApplication(application) {
@@ -542,6 +703,8 @@ export function createTrackerView(root, {
       const applied = await reload();
       if (destroyed) return;
       if (!applied) return;
+      const automaticCheckin = ensureAutomaticCheckin();
+      if (automaticCheckin) await automaticCheckin;
       modal = null;
       syncState = '已同步';
       render();
@@ -694,6 +857,14 @@ export function createTrackerView(root, {
     const form = event.target.closest('form[data-form]');
     if (!form || !root.contains(form)) return;
     event.preventDefault();
+    if (form.dataset.form === 'daily-goal') {
+      void saveDailyGoal(form);
+      return;
+    }
+    if (form.dataset.form === 'makeup-checkin') {
+      void saveMakeupCheckin(form);
+      return;
+    }
     if (form.dataset.form === 'pagination-jump') {
       const requestedPage = Number(form.elements['page-number'].value);
       if (Number.isFinite(requestedPage)) currentPage = Math.max(1, Math.floor(requestedPage));
@@ -723,13 +894,18 @@ export function createTrackerView(root, {
       try {
         const applied = await reload();
         if (destroyed) return;
-        if (applied) syncState = '已同步';
+        if (applied) {
+          const automaticCheckin = ensureAutomaticCheckin();
+          if (automaticCheckin) await automaticCheckin;
+          syncState = '已同步';
+        }
       } catch {
         if (destroyed) return;
         syncState = '同步失败，请重试';
       } finally {
         initialLoading = false;
       }
+      scheduleGoalRefresh();
       render();
     },
 
@@ -741,6 +917,8 @@ export function createTrackerView(root, {
       root.removeEventListener('change', onChange);
       root.removeEventListener('submit', onSubmit);
       documentRef.removeEventListener('keydown', onKeydown);
+      if (goalRefreshTimer) clearTimeout(goalRefreshTimer);
+      goalRefreshTimer = null;
       root.replaceChildren();
     }
   };

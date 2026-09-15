@@ -51,6 +51,8 @@ function createTracker(overrides = {}) {
     deleteApplication: vi.fn().mockResolvedValue(),
     saveInterview: vi.fn().mockResolvedValue({ id: 'new-interview' }),
     deleteInterview: vi.fn().mockResolvedValue(),
+    saveDailyGoal: vi.fn().mockImplementation(target => Promise.resolve(target)),
+    saveCheckin: vi.fn().mockImplementation(form => Promise.resolve({ id: 'new-checkin', ...form })),
     ...overrides
   };
 }
@@ -347,6 +349,113 @@ describe('the grouped tracker view', () => {
     };
   }
 
+  it('shows today’s China-time goal and records an automatic check-in when it is completed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T11:00:00Z'));
+    const tracker = createTracker({
+      loadAll: vi.fn().mockResolvedValue({
+        applications: [
+          { id: 'today-1', company: 'A', companyKey: 'a', role: '岗位 1', status: '已投递', createdAt: '2026-09-14T16:01:00Z', updatedAt: '2026-09-14T16:01:00Z', tags: [] },
+          { id: 'today-2', company: 'B', companyKey: 'b', role: '岗位 2', status: '已投递', createdAt: '2026-09-15T02:00:00Z', updatedAt: '2026-09-15T02:00:00Z', tags: [] },
+          { id: 'today-3', company: 'C', companyKey: 'c', role: '岗位 3', status: '已投递', createdAt: '2026-09-15T03:00:00Z', updatedAt: '2026-09-15T03:00:00Z', tags: [] }
+        ],
+        interviews: [],
+        statusHistory: [],
+        dailyGoal: 3,
+        checkins: [{ checkinDate: '2026-09-14', source: 'automatic' }]
+      })
+    });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    expect(document.querySelector('[data-goal-progress]').textContent.trim()).toBe('3/3');
+    expect(document.querySelector('[data-goal-message]').textContent).toBe('今日目标完成，打卡已记录。继续保持！');
+    expect(document.querySelector('[data-checkin-streak]').textContent).toContain('连续打卡 2 天');
+    expect(tracker.saveCheckin).toHaveBeenCalledWith({
+      checkinDate: '2026-09-15',
+      goalTarget: 3,
+      completedCount: 3,
+      source: 'automatic'
+    });
+
+    view.destroy();
+  });
+
+  it('updates the daily target and supports an unlimited historical makeup check-in', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T11:00:00Z'));
+    const tracker = createTracker({
+      loadAll: vi.fn().mockResolvedValue({
+        applications: [], interviews: [], statusHistory: [], dailyGoal: 3, checkins: []
+      })
+    });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const goalForm = document.querySelector('[data-form="daily-goal"]');
+    goalForm.querySelector('[name="daily-target"]').value = '5';
+    goalForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(tracker.saveDailyGoal).toHaveBeenCalledWith(5);
+    expect(document.querySelector('[data-goal-progress]').textContent.trim()).toBe('0/5');
+
+    const makeupForm = document.querySelector('[data-form="makeup-checkin"]');
+    makeupForm.querySelector('[name="makeup-date"]').value = '2026-08-01';
+    makeupForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(tracker.saveCheckin).toHaveBeenCalledWith({
+      checkinDate: '2026-08-01',
+      goalTarget: 5,
+      completedCount: 5,
+      source: 'makeup'
+    });
+    expect(document.querySelector('[data-checkin-feedback]').textContent).toContain('2026-08-01 已补签');
+
+    view.destroy();
+  });
+
+  it('shows the final reminder after 22:00 China time when the goal is incomplete', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T14:05:00Z'));
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({
+        loadAll: vi.fn().mockResolvedValue({
+          applications: [], interviews: [], statusHistory: [], dailyGoal: 3, checkins: []
+        })
+      }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    expect(document.querySelector('[data-daily-goal]').dataset.tone).toBe('final');
+    expect(document.querySelector('[data-goal-message]').textContent).toContain('连续打卡就要中断了');
+
+    view.destroy();
+  });
+
+  it('keeps applications visible and explains setup when the check-in tables are not installed yet', async () => {
+    const tracker = createTracker({
+      loadAll: vi.fn().mockResolvedValue({
+        ...clone(initialData), dailyGoal: 3, checkins: [], checkinsAvailable: false
+      })
+    });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    expect(document.querySelector('[data-application-id="bytedance"]')).not.toBeNull();
+    expect(document.querySelector('[data-checkin-feedback]').textContent).toContain('Supabase 初始化');
+    expect(document.querySelector('[data-form="daily-goal"] button').disabled).toBe(true);
+  });
+
   it('paginates by five company groups without hiding the interview review section', async () => {
     const view = createTrackerView(document.querySelector('#app'), {
       trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
@@ -636,7 +745,12 @@ describe('the grouped tracker view', () => {
     await flushPromises();
 
     expect(tracker.loadAll).toHaveBeenCalledTimes(2);
-    expect(downloadBackup).toHaveBeenCalledWith(confirmedCloudData, document);
+    expect(downloadBackup).toHaveBeenCalledWith({
+      ...confirmedCloudData,
+      dailyGoal: 3,
+      checkins: [],
+      checkinsAvailable: true
+    }, document);
     expect(document.querySelector('[data-sync-status]').textContent).toBe('已同步');
   });
 

@@ -5,6 +5,7 @@ function createQuery(response = { data: null, error: null }) {
   const query = {
     delete: vi.fn(() => query),
     eq: vi.fn(() => Promise.resolve(response)),
+    limit: vi.fn(() => Promise.resolve(response)),
     order: vi.fn(() => Promise.resolve(response)),
     select: vi.fn(() => query),
     single: vi.fn(() => Promise.resolve(response)),
@@ -72,7 +73,7 @@ it('maps an application form to database fields without client-owned columns', a
   expect(query.select).toHaveBeenCalledWith(expect.not.stringContaining('*'));
 });
 
-it('loads all three collections using explicit columns and camelCase view models', async () => {
+it('loads tracker records, daily goal and check-ins using explicit columns', async () => {
   const applications = createQuery({
     data: [{ id: 'app-1', company: 'Tencent', company_key: 'tencent', updated_at: '2026-09-03T10:00:00Z' }],
     error: null
@@ -85,22 +86,95 @@ it('loads all three collections using explicit columns and camelCase view models
     data: [{ id: 1, application_id: 'app-1', changed_at: '2026-09-03T12:00:00Z' }],
     error: null
   });
+  const dailyGoalSettings = createQuery({
+    data: [{ daily_target: 4, updated_at: '2026-09-03T12:00:00Z' }],
+    error: null
+  });
+  const dailyCheckins = createQuery({
+    data: [{ id: 'checkin-1', checkin_date: '2026-09-03', goal_target: 4, completed_count: 4, source: 'automatic' }],
+    error: null
+  });
   const client = {
-    from: vi.fn(table => ({ applications, interviews, status_history: statusHistory }[table]))
+    from: vi.fn(table => ({
+      applications,
+      interviews,
+      status_history: statusHistory,
+      daily_goal_settings: dailyGoalSettings,
+      daily_checkins: dailyCheckins
+    }[table]))
   };
 
   await expect(createTrackerService(client).loadAll()).resolves.toEqual({
     applications: [{ id: 'app-1', company: 'Tencent', companyKey: 'tencent', updatedAt: '2026-09-03T10:00:00Z' }],
     interviews: [{ id: 'interview-1', applicationId: 'app-1', nextPlan: '复盘', updatedAt: '2026-09-03T11:00:00Z' }],
-    statusHistory: [{ id: 1, applicationId: 'app-1', changedAt: '2026-09-03T12:00:00Z' }]
+    statusHistory: [{ id: 1, applicationId: 'app-1', changedAt: '2026-09-03T12:00:00Z' }],
+    dailyGoal: 4,
+    checkins: [{ id: 'checkin-1', checkinDate: '2026-09-03', goalTarget: 4, completedCount: 4, source: 'automatic' }],
+    checkinsAvailable: true
   });
 
   expect(client.from).toHaveBeenCalledWith('applications');
   expect(client.from).toHaveBeenCalledWith('interviews');
   expect(client.from).toHaveBeenCalledWith('status_history');
-  for (const query of [applications, interviews, statusHistory]) {
+  expect(client.from).toHaveBeenCalledWith('daily_goal_settings');
+  expect(client.from).toHaveBeenCalledWith('daily_checkins');
+  for (const query of [applications, interviews, statusHistory, dailyGoalSettings, dailyCheckins]) {
     expect(query.select).toHaveBeenCalledWith(expect.not.stringContaining('*'));
   }
+});
+
+it('keeps core tracker data available before the optional check-in migration is installed', async () => {
+  const applications = createQuery({ data: [{ id: 'app-1', company: 'Tencent' }], error: null });
+  const interviews = createQuery({ data: [], error: null });
+  const statusHistory = createQuery({ data: [], error: null });
+  const missingTable = { data: null, error: { code: '42P01', message: 'relation does not exist' } };
+  const dailyGoalSettings = createQuery(missingTable);
+  const dailyCheckins = createQuery(missingTable);
+  const client = {
+    from: vi.fn(table => ({
+      applications,
+      interviews,
+      status_history: statusHistory,
+      daily_goal_settings: dailyGoalSettings,
+      daily_checkins: dailyCheckins
+    }[table]))
+  };
+
+  await expect(createTrackerService(client).loadAll()).resolves.toMatchObject({
+    applications: [{ id: 'app-1', company: 'Tencent' }],
+    dailyGoal: 3,
+    checkins: [],
+    checkinsAvailable: false
+  });
+});
+
+it('saves a daily target and a dated check-in without accepting a client-owned user id', async () => {
+  const goalQuery = createQuery({ data: { daily_target: 5 }, error: null });
+  const checkinQuery = createQuery({
+    data: { id: 'checkin-1', checkin_date: '2026-09-15', goal_target: 5, completed_count: 5, source: 'makeup' },
+    error: null
+  });
+  const client = {
+    from: vi.fn(table => ({ daily_goal_settings: goalQuery, daily_checkins: checkinQuery }[table]))
+  };
+  const tracker = createTrackerService(client);
+
+  await expect(tracker.saveDailyGoal(5)).resolves.toBe(5);
+  expect(goalQuery.upsert).toHaveBeenCalledWith({ daily_target: 5 }, { onConflict: 'user_id' });
+
+  await expect(tracker.saveCheckin({
+    checkinDate: '2026-09-15',
+    goalTarget: 5,
+    completedCount: 5,
+    source: 'makeup',
+    userId: 'ignored'
+  })).resolves.toMatchObject({ checkinDate: '2026-09-15', source: 'makeup' });
+  expect(checkinQuery.upsert).toHaveBeenCalledWith({
+    checkin_date: '2026-09-15',
+    goal_target: 5,
+    completed_count: 5,
+    source: 'makeup'
+  }, { onConflict: 'user_id,checkin_date' });
 });
 
 it('maps interviews and deletes records by id', async () => {

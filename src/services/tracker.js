@@ -45,9 +45,27 @@ const STATUS_HISTORY_COLUMNS = [
   'changed_at'
 ].join(',');
 
+const DAILY_GOAL_COLUMNS = ['daily_target', 'updated_at'].join(',');
+
+const CHECKIN_COLUMNS = [
+  'id',
+  'user_id',
+  'checkin_date',
+  'goal_target',
+  'completed_count',
+  'source',
+  'completed_at'
+].join(',');
+
 function unwrap(response) {
   if (response.error) throw response.error;
   return response.data;
+}
+
+function optionalRows(response) {
+  if (!response.error) return response.data;
+  if (['42P01', 'PGRST205'].includes(response.error.code)) return null;
+  throw response.error;
 }
 
 function camelCase(key) {
@@ -111,16 +129,25 @@ function mapInterviewForm(form) {
 export function createTrackerService(client) {
   return {
     async loadAll() {
-      const [applicationsResponse, interviewsResponse, statusHistoryResponse] = await Promise.all([
+      const [applicationsResponse, interviewsResponse, statusHistoryResponse, dailyGoalResponse, checkinsResponse] = await Promise.all([
         client.from('applications').select(APPLICATION_COLUMNS).order('updated_at', { ascending: false }),
         client.from('interviews').select(INTERVIEW_COLUMNS).order('date', { ascending: false }),
-        client.from('status_history').select(STATUS_HISTORY_COLUMNS).order('changed_at', { ascending: false })
+        client.from('status_history').select(STATUS_HISTORY_COLUMNS).order('changed_at', { ascending: false }),
+        client.from('daily_goal_settings').select(DAILY_GOAL_COLUMNS).limit(1),
+        client.from('daily_checkins').select(CHECKIN_COLUMNS).order('checkin_date', { ascending: false })
       ]);
+
+      const dailyGoalRows = optionalRows(dailyGoalResponse);
+      const checkinRows = optionalRows(checkinsResponse);
+      const checkinsAvailable = dailyGoalRows !== null && checkinRows !== null;
 
       return {
         applications: unwrap(applicationsResponse).map(toViewModel),
         interviews: unwrap(interviewsResponse).map(toViewModel),
-        statusHistory: unwrap(statusHistoryResponse).map(toViewModel)
+        statusHistory: unwrap(statusHistoryResponse).map(toViewModel),
+        dailyGoal: Number(dailyGoalRows?.[0]?.daily_target) || 3,
+        checkins: (checkinRows ?? []).map(toViewModel),
+        checkinsAvailable
       };
     },
 
@@ -148,6 +175,29 @@ export function createTrackerService(client) {
 
     async deleteInterview(id) {
       unwrap(await client.from('interviews').delete().eq('id', id));
+    },
+
+    async saveDailyGoal(dailyTarget) {
+      const response = await client
+        .from('daily_goal_settings')
+        .upsert({ daily_target: dailyTarget }, { onConflict: 'user_id' })
+        .select(DAILY_GOAL_COLUMNS)
+        .single();
+      return Number(unwrap(response).daily_target);
+    },
+
+    async saveCheckin(form) {
+      const response = await client
+        .from('daily_checkins')
+        .upsert({
+          checkin_date: form.checkinDate,
+          goal_target: form.goalTarget,
+          completed_count: form.completedCount,
+          source: form.source
+        }, { onConflict: 'user_id,checkin_date' })
+        .select(CHECKIN_COLUMNS)
+        .single();
+      return toViewModel(unwrap(response));
     }
   };
 }
