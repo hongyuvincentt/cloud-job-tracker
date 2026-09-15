@@ -207,18 +207,32 @@ h1, h2, h3, p { margin-top: 0; }
 .goal-form button { min-height: 2.1rem; border-radius: 9px; padding: 0.3rem 0.58rem; font-size: 0.72rem; }
 .checkin-feedback { min-height: 0.8rem; margin: 0.25rem 0 0; color: #248a3d; font-size: 0.68rem; text-align: right; }
 
-.section-tabs { display: inline-flex; gap: 0.2rem; margin: 0 0 0.9rem; border-radius: 14px; padding: 0.3rem; background: #e8e8ed; }
-.section-tabs a { border-radius: 10px; padding: 0.55rem 0.95rem; color: #6e6e73; text-decoration: none; font-size: 0.9rem; font-weight: 650; }
-.section-tabs a:hover { color: #1d1d1f; }
-.section-tabs a.is-active { color: #1d1d1f; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 9%); }
+.content-switch { display: inline-flex; gap: 0.2rem; border-radius: 13px; padding: 0.28rem; background: #e8e8ed; }
+.content-switch-button {
+  min-height: 2.35rem;
+  border: 0;
+  border-radius: 9px;
+  padding: 0.45rem 0.9rem;
+  color: #6e6e73;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.content-switch-button:hover:not(:disabled) { color: #1d1d1f; background: rgb(255 255 255 / 55%); transform: none; }
+.content-switch-button.is-active,
+.content-switch-button.is-active:hover:not(:disabled) { color: #1d1d1f; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 10%); }
 
 .tracker-section { padding: clamp(1rem, 2.5vw, 1.5rem); margin-top: 1rem; scroll-margin-top: 1rem; }
-.applications-section { margin-top: 0; }
+.content-section { margin-top: 0; }
 .section-heading { align-items: center; margin-bottom: 1rem; }
+.content-heading { align-items: flex-start; }
+.content-heading > div > p { margin-top: 0.5rem; }
 .section-heading h2, .company-header h2, .role-card h3, .interview-card h3, .modal-header h2 { margin-bottom: 0.25rem; }
 .section-heading h2 { font-size: 1.22rem; letter-spacing: -0.02em; }
 .section-heading p { margin-bottom: 0; font-size: 0.86rem; }
 .sort-indicator { border: 1px solid #e2e2e7; border-radius: 10px; padding: 0.42rem 0.7rem; color: #6e6e73; background: #fafafa; font-size: 0.8rem; white-space: nowrap; }
+.panel-primary-action { display: inline-flex; gap: 0.3rem; align-items: center; min-height: 2.45rem; border-radius: 10px; padding: 0.45rem 0.8rem; font-size: 0.82rem; }
 
 .filters, .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
 .filters { grid-template-columns: minmax(0, 1fr) minmax(9rem, 13rem); margin-bottom: 1.15rem; }
@@ -282,7 +296,12 @@ h1, h2, h3, p { margin-top: 0; }
 .pagination-jump label { display: block; color: #6e6e73; font-size: 0.8rem; font-weight: 500; }
 .pagination-jump input { width: 3.4rem; min-height: 2.25rem; border-radius: 10px; padding: 0.35rem 0.45rem; text-align: center; }
 .interview-card { align-items: center; padding: 1rem; border-radius: 16px; box-shadow: none; }
+.interview-main { min-width: 0; }
+.interview-title-row { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
+.review-badge { display: inline-flex; border-radius: 999px; padding: 0.22rem 0.55rem; color: #0066cc; background: #edf6ff; font-size: 0.7rem; font-weight: 650; }
+.interview-card p { margin-bottom: 0.3rem; color: #515154; font-size: 0.82rem; line-height: 1.5; }
 .interview-card p:last-child { margin-bottom: 0; }
+.interview-page-position { display: inline; }
 .empty-state { margin: 0; padding: 1.6rem 1rem; color: #86868b; text-align: center; }
 
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 1rem; background: rgb(0 0 0 / 42%); backdrop-filter: blur(12px); }
@@ -325,8 +344,10 @@ h1, h2, h3, p { margin-top: 0; }
   .goal-form { grid-template-columns: 1fr auto; }
   .goal-form label { grid-column: 1 / -1; }
   .checkin-feedback { text-align: left; }
-  .section-tabs { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-  .section-tabs a { display: grid; place-items: center; text-align: center; }
+  .content-switch { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .content-switch-button { display: grid; place-items: center; text-align: center; }
+  .content-heading > div { width: 100%; }
+  .panel-primary-action { align-self: flex-start; }
   .filters, .form-grid { grid-template-columns: 1fr; }
   .pagination { align-items: flex-start; }
   .pagination-actions { justify-content: flex-start; }
