@@ -459,9 +459,12 @@ export function createTrackerView(root, {
           </div>
         </header>
         <section class="tracker-hero">
-          <p class="eyebrow">你的求职进度，一目了然</p>
-          <h1 id="tracker-title">每个岗位都一目了然</h1>
-          <p>从投递到面试，再到录用，让你的求职之路井然有序。</p>
+          <div class="hero-copy">
+            <p class="eyebrow">你的求职进度，一目了然</p>
+            <h1 id="tracker-title">每个岗位都一目了然</h1>
+            <p>从投递到面试，再到录用，让你的求职之路井然有序。</p>
+          </div>
+          ${renderDailyGoal()}
         </section>
         <section class="stats-grid" aria-label="求职概览">
           <article data-metric="total">
@@ -481,7 +484,6 @@ export function createTrackerView(root, {
             <div><strong>${count.dueSoon}</strong><span class="metric-label">7天内待跟进</span></div>
           </article>
         </section>
-        ${renderDailyGoal()}
         <nav class="section-tabs" aria-label="进度内容">
           <a class="is-active" href="#applications-title">投递记录</a>
           <a href="#interviews-title">面试问题与复盘</a>

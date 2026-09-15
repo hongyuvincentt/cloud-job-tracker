@@ -139,9 +139,15 @@ h1, h2, h3, p { margin-top: 0; }
 .header-actions { justify-content: flex-end; }
 .sync-status { color: #86868b; font-size: 0.82rem; white-space: nowrap; }
 
-.tracker-hero { padding: clamp(2.2rem, 4vw, 3.5rem) 0 1.5rem; }
+.tracker-hero {
+  padding: clamp(2.2rem, 4vw, 3.5rem) 0 1.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(24rem, 0.8fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
 .tracker-hero h1 { max-width: none; margin-bottom: 1rem; font-size: clamp(2rem, 4vw, 4rem); line-height: 1.04; letter-spacing: -0.055em; white-space: nowrap; }
-.tracker-hero > p:last-child { max-width: 680px; margin-bottom: 0; color: #6e6e73; font-size: clamp(1rem, 2vw, 1.28rem); line-height: 1.55; }
+.hero-copy > p:last-child { max-width: 680px; margin-bottom: 0; color: #6e6e73; font-size: clamp(1rem, 2vw, 1.28rem); line-height: 1.55; }
 
 .stats-grid {
   display: grid;
@@ -167,9 +173,10 @@ h1, h2, h3, p { margin-top: 0; }
 
 .daily-goal-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.65fr);
-  gap: 1.5rem;
-  margin: -0.45rem 0 1.2rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  width: 100%;
+  margin: 0;
   border: 1px solid rgb(0 113 227 / 12%);
   border-radius: 22px;
   padding: clamp(1.1rem, 2.5vw, 1.5rem);
@@ -296,6 +303,7 @@ h1, h2, h3, p { margin-top: 0; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-grid article:nth-child(2) { border-right: 0; }
   .stats-grid article:nth-child(-n + 2) { border-bottom: 1px solid #e8e8ed; }
+  .tracker-hero { grid-template-columns: 1fr; gap: 1.2rem; }
   .daily-goal-card { grid-template-columns: 1fr; }
   .daily-goal-tools { width: 100%; }
 }

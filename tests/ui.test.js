@@ -518,6 +518,22 @@ describe('the grouped tracker view', () => {
     expect(document.querySelector('.hero-illustration')).toBeNull();
   });
 
+  it('places the complete daily goal card in the hero’s upper-right layout before the overview', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker(),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const hero = document.querySelector('.tracker-hero');
+    expect(hero.querySelector('.hero-copy #tracker-title')).not.toBeNull();
+    expect(hero.querySelector('[data-daily-goal]')).not.toBeNull();
+    expect(hero.querySelector('[data-form="daily-goal"]')).not.toBeNull();
+    expect(hero.querySelector('[data-form="makeup-checkin"]')).not.toBeNull();
+    expect(hero.compareDocumentPosition(document.querySelector('.stats-grid'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('groups roles by company and orders groups and roles by newest activity', async () => {
     const view = createTrackerView(document.querySelector('#app'), {
       trackerService: createTracker(),
