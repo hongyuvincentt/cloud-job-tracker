@@ -456,7 +456,7 @@ describe('the grouped tracker view', () => {
     expect(document.querySelector('[data-form="daily-goal"] button').disabled).toBe(true);
   });
 
-  it('paginates by five company groups without hiding the interview review section', async () => {
+  it('paginates by five company groups while keeping interview reviews in the alternate panel', async () => {
     const view = createTrackerView(document.querySelector('#app'), {
       trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
       authService: { signOut: vi.fn().mockResolvedValue() }
@@ -467,15 +467,175 @@ describe('the grouped tracker view', () => {
       .toEqual(['company-7', 'company-6', 'company-5', 'company-4', 'company-3']);
     expect(document.querySelectorAll('[data-company-key="company-7"] [data-application-id]')).toHaveLength(2);
     expect(document.querySelector('[data-pagination-summary]').textContent).toContain('共 8 个岗位 · 7 家公司');
-    expect(document.querySelector('[data-interview-id="interview-1"]')).not.toBeNull();
-    expect(document.querySelector('[data-pagination]').compareDocumentPosition(document.querySelector('#interviews-title'))
-      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector('[data-interview-id="interview-1"]')).toBeNull();
 
     click('[data-action="page-next"]');
 
     expect([...document.querySelectorAll('[data-company-key]')].map(element => element.dataset.companyKey))
       .toEqual(['company-2', 'company-1']);
     expect(document.querySelector('[data-page-position]').textContent).toContain('第 2 / 2 页');
+
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+
+    expect(document.querySelector('[data-company-key]')).toBeNull();
+    expect(document.querySelector('[data-interview-id="interview-1"]')).not.toBeNull();
+    expect(document.querySelector('[data-pagination]')).toBeNull();
+  });
+
+  it('switches the shared content card between applications and interview reviews', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const applicationsTab = document.querySelector('[data-action="switch-panel"][data-panel="applications"]');
+    const interviewsTab = document.querySelector('[data-action="switch-panel"][data-panel="interviews"]');
+    expect(applicationsTab.getAttribute('aria-selected')).toBe('true');
+    expect(interviewsTab.getAttribute('aria-selected')).toBe('false');
+    expect(document.querySelector('[data-panel-content="applications"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel-content="interviews"]')).toBeNull();
+
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+
+    expect(document.querySelector('[data-panel-content="applications"]')).toBeNull();
+    expect(document.querySelector('[data-panel-content="interviews"]')).not.toBeNull();
+    expect(document.querySelector('[data-action="add-interview"].panel-primary-action').textContent)
+      .toContain('新增复盘');
+    expect(document.querySelector('[name="interview-search-query"]')).not.toBeNull();
+    expect(document.querySelector('[name="interview-stage-filter"]')).not.toBeNull();
+
+    click('[data-action="switch-panel"][data-panel="applications"]');
+    expect(document.querySelector('[name="search-query"]')).not.toBeNull();
+    expect(document.querySelector('[name="status-filter"]')).not.toBeNull();
+  });
+
+  it('filters interview reviews without changing the application filters', async () => {
+    const data = paginatedData();
+    data.interviews.push({
+      id: 'interview-2',
+      applicationId: 'company-1',
+      date: '2026-09-09',
+      stage: '终面',
+      questions: '如何处理跨团队冲突？',
+      highlights: '回答结构清晰'
+    });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(data) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const applicationSearch = document.querySelector('[name="search-query"]');
+    applicationSearch.value = 'Company 7';
+    applicationSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+
+    const interviewSearch = document.querySelector('[name="interview-search-query"]');
+    interviewSearch.value = '跨团队';
+    interviewSearch.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect([...document.querySelectorAll('[data-interview-id]')].map(element => element.dataset.interviewId))
+      .toEqual(['interview-2']);
+
+    click('[data-action="switch-panel"][data-panel="applications"]');
+    expect(document.querySelector('[name="search-query"]').value).toBe('Company 7');
+    expect(document.querySelector('[data-company-key="company-7"]')).not.toBeNull();
+  });
+
+  it('opens complete interview review details from the interview panel', async () => {
+    const data = paginatedData();
+    data.interviews[0].highlights = '回答结构清晰';
+    data.interviews[0].gaps = '案例还不够具体';
+    data.interviews[0].nextPlan = '补充量化结果';
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(data) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+    click('[data-action="view-interview"][data-id="interview-1"]');
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog.textContent).toContain('面试复盘详情');
+    expect(dialog.textContent).toContain('请介绍一个最有挑战的项目');
+    expect(dialog.textContent).toContain('回答结构清晰');
+    expect(dialog.textContent).toContain('案例还不够具体');
+    expect(dialog.textContent).toContain('补充量化结果');
+  });
+
+  it('paginates long interview review lists independently', async () => {
+    const data = paginatedData();
+    data.interviews = Array.from({ length: 7 }, (_, index) => ({
+      id: `interview-${index + 1}`,
+      applicationId: 'company-7',
+      date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+      stage: '一面',
+      questions: `问题 ${index + 1}`
+    }));
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(data) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+    expect(document.querySelectorAll('[data-interview-id]')).toHaveLength(5);
+    expect(document.querySelector('[data-interview-pagination-summary]').textContent).toContain('共 7 条复盘');
+
+    click('[data-action="interview-page-next"]');
+    expect(document.querySelectorAll('[data-interview-id]')).toHaveLength(2);
+    expect(document.querySelector('[data-interview-page-position]').textContent).toContain('第 2 / 2 页');
+
+    click('[data-action="switch-panel"][data-panel="applications"]');
+    expect(document.querySelector('[data-page-position]').textContent).toContain('第 1 / 2 页');
+  });
+
+  it('clears a stale interview stage filter after its last matching review is deleted', async () => {
+    const initial = paginatedData();
+    initial.interviews = [
+      { id: 'final-review', applicationId: 'company-7', date: '2026-09-10', stage: '终面', questions: '终面问题' },
+      { id: 'first-review', applicationId: 'company-6', date: '2026-09-09', stage: '一面', questions: '一面问题' }
+    ];
+    const tracker = createTracker({
+      loadAll: vi.fn()
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValueOnce({ ...initial, interviews: [initial.interviews[1]] })
+    });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+    click('[data-action="switch-panel"][data-panel="interviews"]');
+
+    const filter = document.querySelector('[name="interview-stage-filter"]');
+    filter.value = '终面';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    click('[data-action="delete-interview"][data-id="final-review"]');
+    await flushPromises();
+
+    expect(document.querySelector('[name="interview-stage-filter"]').value).toBe('');
+    expect(document.querySelector('[data-interview-id="first-review"]')).not.toBeNull();
+  });
+
+  it('supports arrow-key navigation between the two content tabs', async () => {
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: createTracker({ loadAll: vi.fn().mockResolvedValue(paginatedData()) }),
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const applicationsTab = document.querySelector('[data-action="switch-panel"][data-panel="applications"]');
+    applicationsTab.focus();
+    applicationsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    const interviewsTab = document.querySelector('[data-action="switch-panel"][data-panel="interviews"]');
+    expect(interviewsTab.getAttribute('aria-selected')).toBe('true');
+    expect(interviewsTab.getAttribute('aria-controls')).toBe('interviews-panel');
+    expect(document.activeElement).toBe(interviewsTab);
+    expect(document.querySelector('#interviews-panel').getAttribute('aria-labelledby')).toBe('interviews-tab');
   });
 
   it('supports jumping to a page and resets pagination after filtering', async () => {
@@ -511,7 +671,7 @@ describe('the grouped tracker view', () => {
     expect(document.querySelector('[aria-label="求职概览"]')).not.toBeNull();
     expect([...document.querySelectorAll('[data-metric] .metric-label')].map(element => element.textContent))
       .toEqual(['全部投递', '面试进行中', '已获录用', '7天内待跟进']);
-    expect([...document.querySelectorAll('.section-tabs a')].map(element => element.textContent.trim()))
+    expect([...document.querySelectorAll('.content-switch button')].map(element => element.textContent.trim()))
       .toEqual(['投递记录', '面试问题与复盘']);
     expect(document.querySelector('.app-header [data-action="add-application"]')).not.toBeNull();
     expect(document.body.textContent).not.toContain('更好的自己');
