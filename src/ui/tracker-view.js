@@ -854,24 +854,41 @@ export function createTrackerView(root, {
 
   async function saveQuickNextAction(application, nextAction, failureReason = '') {
     if (mutationInFlight || destroyed) return;
+    const pendingApplication = {
+      ...application,
+      status: nextActionStatus(nextAction, application.status || '准备投递'),
+      nextAction,
+      failureReason: nextAction === '投递失败' ? failureReason : ''
+    };
     mutationInFlight = true;
     setSync('正在同步');
     render();
+
+    let savedApplication;
     try {
-      await trackerService.saveApplication({
-        ...applicationForm(application),
-        status: nextActionStatus(nextAction, application.status || '准备投递'),
-        nextAction,
-        failureReason: nextAction === '投递失败' ? failureReason : ''
-      });
-      if (destroyed) return;
-      const applied = await reload();
-      if (!applied || destroyed) return;
-      modal = null;
-      syncState = '已同步';
+      savedApplication = await trackerService.saveApplication(applicationForm(pendingApplication));
     } catch {
       if (destroyed) return;
       syncState = '同步失败，请重试';
+      mutationInFlight = false;
+      render();
+      return;
+    }
+
+    if (destroyed) return;
+    data.applications = data.applications.map(item =>
+      item.id === application.id ? { ...pendingApplication, ...savedApplication } : item
+    );
+    modal = null;
+
+    try {
+      const applied = await reload();
+      if (!applied || destroyed) return;
+      syncState = '已同步';
+    } catch {
+      if (destroyed) return;
+      reloadOnlyRetry = true;
+      syncState = '已保存，但刷新失败，请重新加载';
     } finally {
       mutationInFlight = false;
       if (!destroyed) render();
