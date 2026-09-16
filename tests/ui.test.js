@@ -899,6 +899,137 @@ describe('the grouped tracker view', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('offers color-coded next actions and only requires a reason for failed applications', async () => {
+    const tracker = createTracker();
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    click('[data-action="add-application"]');
+    const nextAction = document.querySelector('[name="nextAction"]');
+    expect([...nextAction.options].map(option => option.value)).toEqual([
+      '', 'AI面/海测', '一面', '二面', 'HR面', '终面', 'Offer Call', 'Offer', '投递失败'
+    ]);
+
+    nextAction.value = '投递失败';
+    nextAction.dispatchEvent(new Event('change', { bubbles: true }));
+    const failureReason = document.querySelector('[name="failureReason"]');
+    expect(failureReason.closest('[data-failure-reason-field]').hidden).toBe(false);
+    expect(failureReason.required).toBe(true);
+
+    document.querySelector('[name="company"]').value = 'OpenAI';
+    document.querySelector('[name="role"]').value = '产品工程师';
+    document.querySelector('[data-form="application"] [type="submit"]').click();
+    await flushPromises();
+    expect(tracker.saveApplication).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-form-error]').textContent).toContain('失败原因');
+
+    failureReason.value = '岗位被冻结';
+    document.querySelector('[data-form="application"] [type="submit"]').click();
+    await flushPromises();
+    expect(tracker.saveApplication).toHaveBeenCalledWith(expect.objectContaining({
+      nextAction: '投递失败',
+      failureReason: '岗位被冻结'
+    }));
+  });
+
+  it('updates the next action from the homepage and keeps status controls aligned', async () => {
+    const updatedData = clone(initialData);
+    updatedData.applications[0] = {
+      ...updatedData.applications[0],
+      status: '笔试',
+      nextAction: 'AI面/海测'
+    };
+    const tracker = createTracker();
+    tracker.loadAll
+      .mockResolvedValueOnce(clone(initialData))
+      .mockResolvedValueOnce(updatedData);
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const card = document.querySelector('[data-application-id="tencent-old"]');
+    const status = card.querySelector('[data-role-status]');
+    const nextAction = card.querySelector('[name="quick-next-action"]');
+    expect(status.classList.contains('role-state-control')).toBe(true);
+    expect(nextAction.classList.contains('role-state-control')).toBe(true);
+
+    nextAction.value = 'AI面/海测';
+    nextAction.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+
+    expect(tracker.saveApplication).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'tencent-old',
+      status: '笔试',
+      nextAction: 'AI面/海测',
+      failureReason: ''
+    }));
+    const updatedCard = document.querySelector('[data-application-id="tencent-old"]');
+    expect(updatedCard.querySelector('[data-role-status]').textContent).toContain('笔试');
+    expect(updatedCard.querySelector('[name="quick-next-action"]').value).toBe('AI面/海测');
+  });
+
+  it('asks for a failure reason before saving a failed application from the homepage', async () => {
+    const updatedData = clone(initialData);
+    updatedData.applications[0] = {
+      ...updatedData.applications[0],
+      status: '已拒绝',
+      nextAction: '投递失败',
+      failureReason: '岗位被冻结'
+    };
+    const tracker = createTracker();
+    tracker.loadAll
+      .mockResolvedValueOnce(clone(initialData))
+      .mockResolvedValueOnce(updatedData);
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const quickAction = document.querySelector('[data-application-id="tencent-old"] [name="quick-next-action"]');
+    quickAction.value = '投递失败';
+    quickAction.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(tracker.saveApplication).not.toHaveBeenCalled();
+    const reasonForm = document.querySelector('[data-form="quick-failure"]');
+    expect(reasonForm).not.toBeNull();
+    reasonForm.elements.failureReason.value = '岗位被冻结';
+    reasonForm.querySelector('[type="submit"]').click();
+    await flushPromises();
+
+    expect(tracker.saveApplication).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'tencent-old',
+      status: '已拒绝',
+      nextAction: '投递失败',
+      failureReason: '岗位被冻结'
+    }));
+    expect(document.querySelector('[data-application-id="tencent-old"]').textContent).toContain('投递失败【岗位被冻结】');
+  });
+
+  it('restores the homepage next action when its cloud save fails', async () => {
+    const tracker = createTracker({ saveApplication: vi.fn().mockRejectedValue(new Error('offline')) });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const quickAction = document.querySelector('[data-application-id="tencent-old"] [name="quick-next-action"]');
+    quickAction.value = 'Offer';
+    quickAction.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+
+    const restoredCard = document.querySelector('[data-application-id="tencent-old"]');
+    expect(restoredCard.querySelector('[data-role-status]').textContent).toContain('已投递');
+    expect(restoredCard.querySelector('[name="quick-next-action"]').value).toBe('');
+    expect(document.querySelector('[data-sync-status]').textContent).toBe('同步失败，请重试');
+  });
+
   it('reloads cloud data before exporting a backup', async () => {
     const tracker = createTracker();
     const confirmedCloudData = {
