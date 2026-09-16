@@ -10,6 +10,16 @@ import { getDueMeta } from '../lib/dates.js';
 import { downloadBackup as downloadCloudBackup } from '../lib/export.js';
 
 const STATUSES = ['准备投递', '已投递', '笔试', '面试中', '已录用', '已拒绝', '已放弃'];
+const NEXT_ACTIONS = [
+  { value: 'AI面/海测', label: '● AI面/海测', tone: 'assessment', status: '笔试' },
+  { value: '一面', label: '● 一面', tone: 'first', status: '面试中' },
+  { value: '二面', label: '● 二面', tone: 'second', status: '面试中' },
+  { value: 'HR面', label: '● HR面', tone: 'hr', status: '面试中' },
+  { value: '终面', label: '● 终面', tone: 'final', status: '面试中' },
+  { value: 'Offer Call', label: '● Offer Call', tone: 'offer-call', status: '面试中' },
+  { value: 'Offer', label: '● Offer', tone: 'offer', status: '已录用' },
+  { value: '投递失败', label: '● 投递失败', tone: 'failed', status: '已拒绝' }
+];
 const COMPANY_GROUPS_PER_PAGE = 5;
 const INTERVIEWS_PER_PAGE = 5;
 
@@ -53,6 +63,36 @@ function statusOptions(selected = '') {
   ).join('');
 }
 
+function nextActionTone(value = '') {
+  return NEXT_ACTIONS.find(action => action.value === value)?.tone ?? 'neutral';
+}
+
+function nextActionStatus(value, currentStatus) {
+  return NEXT_ACTIONS.find(action => action.value === value)?.status ?? currentStatus;
+}
+
+function nextActionOptions(selected = '') {
+  const known = NEXT_ACTIONS.some(action => action.value === selected);
+  const legacyOption = selected && !known
+    ? `<option value="${escapeAttribute(selected)}" selected>● 原记录：${escapeHtml(selected)}</option>`
+    : '';
+  return [
+    `<option value="" ${selected ? '' : 'selected'}>请选择下一步行动</option>`,
+    legacyOption,
+    ...NEXT_ACTIONS.map(action =>
+      `<option value="${escapeAttribute(action.value)}" data-tone="${action.tone}" ${action.value === selected ? 'selected' : ''}>${escapeHtml(action.label)}</option>`
+    )
+  ].join('');
+}
+
+function nextActionDisplay(application) {
+  if (!application.nextAction) return '';
+  const reason = application.nextAction === '投递失败' && application.failureReason
+    ? `【${application.failureReason}】`
+    : '';
+  return `${application.nextAction}${reason}`;
+}
+
 function emptyData() {
   return { applications: [], interviews: [], statusHistory: [], dailyGoal: 3, checkins: [], checkinsAvailable: true };
 }
@@ -78,6 +118,7 @@ function applicationForm(application = {}) {
     appliedDate: application.appliedDate ?? '',
     status: application.status ?? '准备投递',
     nextAction: application.nextAction ?? '',
+    failureReason: application.failureReason ?? '',
     nextDate: application.nextDate ?? '',
     salary: application.salary ?? '',
     contact: application.contact ?? '',
@@ -249,10 +290,19 @@ export function createTrackerView(root, {
         <div class="role-main">
           <div class="role-title-row">
             <h3>${escapeHtml(application.role || '未命名岗位')}</h3>
-            <span class="status-badge">状态：${escapeHtml(application.status || '准备投递')}</span>
+            <div class="role-state-row">
+              <span class="status-badge role-state-control" data-role-status>状态：${escapeHtml(application.status || '准备投递')}</span>
+              <label class="quick-action-label">
+                <span class="visually-hidden">下一步行动</span>
+                <select name="quick-next-action" class="next-action-select role-state-control" data-id="${escapeAttribute(application.id)}" data-action-tone="${nextActionTone(application.nextAction)}"${mutationDisabled}>
+                  ${nextActionOptions(application.nextAction)}
+                </select>
+              </label>
+            </div>
           </div>
           <p class="role-meta">${escapeHtml(application.location || '地点未填写')} · ${escapeHtml(application.channel || '渠道未填写')}</p>
-          <p class="due due-${due.state}">跟进：${escapeHtml(due.text)}${application.nextAction ? ` · ${escapeHtml(application.nextAction)}` : ''}</p>
+          <p class="due due-${due.state}">跟进：${escapeHtml(due.text)}</p>
+          ${application.nextAction === '投递失败' && application.failureReason ? `<p class="failure-summary">${escapeHtml(nextActionDisplay(application))}</p>` : ''}
           ${tags.length ? `<p class="tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}</p>` : ''}
         </div>
         <div class="card-actions" aria-label="岗位操作">
@@ -380,8 +430,12 @@ export function createTrackerView(root, {
               <label>投递渠道<input name="channel" value="${escapeAttribute(form.channel)}"></label>
               <label>投递日期<input name="appliedDate" type="date" value="${escapeAttribute(form.appliedDate)}"></label>
               <label>当前状态<select name="status">${statusOptions(form.status)}</select></label>
-              <label>下一步行动<input name="nextAction" value="${escapeAttribute(form.nextAction)}"></label>
+              <label>下一步行动<select name="nextAction" class="next-action-select" data-action-tone="${nextActionTone(form.nextAction)}">${nextActionOptions(form.nextAction)}</select></label>
               <label>跟进日期<input name="nextDate" type="date" value="${escapeAttribute(form.nextDate)}"></label>
+              <label class="full-width failure-reason-field" data-failure-reason-field ${form.nextAction === '投递失败' ? '' : 'hidden'}>失败原因
+                <textarea name="failureReason" rows="3" ${form.nextAction === '投递失败' ? 'required' : ''} placeholder="例如：笔试未通过、岗位冻结、经验匹配度不足">${escapeHtml(form.failureReason)}</textarea>
+                <span class="field-hint">仅选择“投递失败”时需要填写</span>
+              </label>
               <label>薪资范围<input name="salary" value="${escapeAttribute(form.salary)}"></label>
               <label>联系人<input name="contact" value="${escapeAttribute(form.contact)}"></label>
               <label class="full-width">职位链接<input name="jobUrl" type="url" inputmode="url" value="${escapeAttribute(form.jobUrl)}"></label>
@@ -391,6 +445,31 @@ export function createTrackerView(root, {
             <footer class="modal-actions">
               <button type="button" class="button-secondary" data-action="close-modal">取消</button>
               <button type="submit">${editing ? '保存修改' : '保存投递'}</button>
+            </footer>
+          </form>
+        </div>
+      </section>`;
+  }
+
+  function renderQuickFailureModal(application, failureReason = '') {
+    return `
+      <section class="modal-backdrop" data-modal-backdrop>
+        <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="quick-failure-title">
+          <header class="modal-header">
+            <div>
+              <h2 id="quick-failure-title">记录投递失败原因</h2>
+              <p class="modal-subtitle">${escapeHtml(application.company)} · ${escapeHtml(application.role)}</p>
+            </div>
+            <button type="button" class="icon-button" data-action="close-modal" aria-label="关闭">×</button>
+          </header>
+          <form data-form="quick-failure" class="record-form" novalidate>
+            <p class="form-message is-error" data-form-error aria-live="polite"></p>
+            <label>失败原因
+              <textarea name="failureReason" rows="4" required placeholder="例如：笔试未通过、岗位冻结、经验匹配度不足">${escapeHtml(failureReason)}</textarea>
+            </label>
+            <footer class="modal-actions">
+              <button type="button" class="button-secondary" data-action="close-modal">取消</button>
+              <button type="submit">确认并更新</button>
             </footer>
           </form>
         </div>
@@ -450,6 +529,7 @@ export function createTrackerView(root, {
             <p><strong>薪资：</strong>${escapeHtml(application.salary || '未填写')}</p>
             <p><strong>联系人：</strong>${escapeHtml(application.contact || '未填写')}</p>
             <p><strong>下一步：</strong>${escapeHtml(application.nextAction || '未填写')} ${application.nextDate ? `（${formatDate(application.nextDate)}）` : ''}</p>
+            ${application.nextAction === '投递失败' ? `<p><strong>失败原因：</strong>${escapeHtml(application.failureReason || '未填写')}</p>` : ''}
             <p><strong>职位链接：</strong>${url ? `<a href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">安全打开职位页面</a>` : '未填写或链接无效'}</p>
             <p><strong>标签：</strong>${escapeHtml((application.tags ?? []).join('、') || '未填写')}</p>
             <p><strong>备注：</strong>${escapeHtml(application.notes || '未填写')}</p>
@@ -496,6 +576,7 @@ export function createTrackerView(root, {
   function renderModal() {
     if (!modal) return '';
     if (modal.type === 'application') return renderApplicationModal(modal.form);
+    if (modal.type === 'quick-failure') return renderQuickFailureModal(modal.application, modal.failureReason);
     if (modal.type === 'interview') return renderInterviewModal(modal.form);
     if (modal.type === 'details') return renderDetailsModal(modal.application);
     if (modal.type === 'interview-details') return renderInterviewDetailsModal(modal.interview);
@@ -753,7 +834,7 @@ export function createTrackerView(root, {
       return {
         id: value('id'), company: value('company').trim(), role: value('role').trim(),
         location: value('location').trim(), channel: value('channel').trim(), appliedDate: value('appliedDate'),
-        status: value('status'), nextAction: value('nextAction').trim(), nextDate: value('nextDate'),
+        status: value('status'), nextAction: value('nextAction').trim(), failureReason: value('failureReason').trim(), nextDate: value('nextDate'),
         salary: value('salary').trim(), contact: value('contact').trim(), jobUrl: value('jobUrl').trim(),
         tags: value('tags'), notes: value('notes').trim()
       };
@@ -771,6 +852,32 @@ export function createTrackerView(root, {
     });
   }
 
+  async function saveQuickNextAction(application, nextAction, failureReason = '') {
+    if (mutationInFlight || destroyed) return;
+    mutationInFlight = true;
+    setSync('正在同步');
+    render();
+    try {
+      await trackerService.saveApplication({
+        ...applicationForm(application),
+        status: nextActionStatus(nextAction, application.status || '准备投递'),
+        nextAction,
+        failureReason: nextAction === '投递失败' ? failureReason : ''
+      });
+      if (destroyed) return;
+      const applied = await reload();
+      if (!applied || destroyed) return;
+      modal = null;
+      syncState = '已同步';
+    } catch {
+      if (destroyed) return;
+      syncState = '同步失败，请重试';
+    } finally {
+      mutationInFlight = false;
+      if (!destroyed) render();
+    }
+  }
+
   async function saveForm(form) {
     if (mutationInFlight || destroyed) return;
     const values = valuesFromForm(form);
@@ -778,6 +885,10 @@ export function createTrackerView(root, {
     const formError = form.querySelector('[data-form-error]');
     if (form.dataset.form === 'application' && (!values.company || !values.role)) {
       formError.textContent = '请填写公司和岗位名称';
+      return;
+    }
+    if (form.dataset.form === 'application' && values.nextAction === '投递失败' && !values.failureReason) {
+      formError.textContent = '选择投递失败后请填写失败原因';
       return;
     }
     if (form.dataset.form === 'interview' && (!values.applicationId || !values.date || !values.stage)) {
@@ -966,6 +1077,33 @@ export function createTrackerView(root, {
   }
 
   function onChange(event) {
+    if (event.target.name === 'quick-next-action') {
+      const application = data.applications.find(item => item.id === event.target.dataset.id);
+      if (!application || mutationInFlight) {
+        render();
+        return;
+      }
+      if (event.target.value === '投递失败') {
+        modal = { type: 'quick-failure', application, failureReason: application.failureReason ?? '' };
+        render();
+        root.querySelector('[name="failureReason"]')?.focus();
+      } else {
+        void saveQuickNextAction(application, event.target.value);
+      }
+      return;
+    }
+    if (event.target.name === 'nextAction') {
+      const form = event.target.closest('[data-form="application"]');
+      const field = form?.querySelector('[data-failure-reason-field]');
+      const reason = form?.elements.namedItem('failureReason');
+      const failed = event.target.value === '投递失败';
+      event.target.dataset.actionTone = nextActionTone(event.target.value);
+      if (field) field.hidden = !failed;
+      if (reason) {
+        reason.required = failed;
+        if (!failed) reason.value = '';
+      }
+    }
     if (event.target.name === 'status-filter') {
       filters.status = event.target.value;
       currentPage = 1;
@@ -984,6 +1122,18 @@ export function createTrackerView(root, {
     const form = event.target.closest('form[data-form]');
     if (!form || !root.contains(form)) return;
     event.preventDefault();
+    if (form.dataset.form === 'quick-failure') {
+      const failureReason = form.elements.failureReason.value.trim();
+      const formError = form.querySelector('[data-form-error]');
+      if (!failureReason) {
+        formError.textContent = '请填写失败原因';
+        return;
+      }
+      if (!modal || modal.type !== 'quick-failure') return;
+      modal.failureReason = failureReason;
+      void saveQuickNextAction(modal.application, '投递失败', failureReason);
+      return;
+    }
     if (form.dataset.form === 'daily-goal') {
       void saveDailyGoal(form);
       return;

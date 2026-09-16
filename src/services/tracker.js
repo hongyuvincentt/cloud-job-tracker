@@ -11,6 +11,7 @@ const APPLICATION_COLUMNS = [
   'applied_date',
   'status',
   'next_action',
+  'failure_reason',
   'next_date',
   'salary',
   'contact',
@@ -20,6 +21,8 @@ const APPLICATION_COLUMNS = [
   'created_at',
   'updated_at'
 ].join(',');
+
+const APPLICATION_COLUMNS_WITHOUT_FAILURE = APPLICATION_COLUMNS.replace(',failure_reason', '');
 
 const INTERVIEW_COLUMNS = [
   'id',
@@ -64,8 +67,27 @@ function unwrap(response) {
 
 function optionalRows(response) {
   if (!response.error) return response.data;
-  if (['42P01', 'PGRST205'].includes(response.error.code)) return null;
+  if (['42P01', '42501', 'PGRST204', 'PGRST205'].includes(response.error.code)) return null;
   throw response.error;
+}
+
+function missingFailureReason(error) {
+  return ['42703', 'PGRST204'].includes(error?.code)
+    && String(error?.message ?? '').includes('failure_reason');
+}
+
+async function loadApplications(client) {
+  let response = await client
+    .from('applications')
+    .select(APPLICATION_COLUMNS)
+    .order('updated_at', { ascending: false });
+  if (missingFailureReason(response.error)) {
+    response = await client
+      .from('applications')
+      .select(APPLICATION_COLUMNS_WITHOUT_FAILURE)
+      .order('updated_at', { ascending: false });
+  }
+  return unwrap(response);
 }
 
 function camelCase(key) {
@@ -97,6 +119,7 @@ function mapApplicationForm(form) {
     applied_date: optionalDate(form.appliedDate),
     status: form.status ?? '准备投递',
     next_action: form.nextAction ?? '',
+    failure_reason: form.nextAction === '投递失败' ? (form.failureReason ?? '') : '',
     next_date: optionalDate(form.nextDate),
     salary: form.salary ?? '',
     contact: form.contact ?? '',
@@ -129,8 +152,8 @@ function mapInterviewForm(form) {
 export function createTrackerService(client) {
   return {
     async loadAll() {
-      const [applicationsResponse, interviewsResponse, statusHistoryResponse, dailyGoalResponse, checkinsResponse] = await Promise.all([
-        client.from('applications').select(APPLICATION_COLUMNS).order('updated_at', { ascending: false }),
+      const [applications, interviewsResponse, statusHistoryResponse, dailyGoalResponse, checkinsResponse] = await Promise.all([
+        loadApplications(client),
         client.from('interviews').select(INTERVIEW_COLUMNS).order('date', { ascending: false }),
         client.from('status_history').select(STATUS_HISTORY_COLUMNS).order('changed_at', { ascending: false }),
         client.from('daily_goal_settings').select(DAILY_GOAL_COLUMNS).limit(1),
@@ -142,7 +165,7 @@ export function createTrackerService(client) {
       const checkinsAvailable = dailyGoalRows !== null && checkinRows !== null;
 
       return {
-        applications: unwrap(applicationsResponse).map(toViewModel),
+        applications: applications.map(toViewModel),
         interviews: unwrap(interviewsResponse).map(toViewModel),
         statusHistory: unwrap(statusHistoryResponse).map(toViewModel),
         dailyGoal: Number(dailyGoalRows?.[0]?.daily_target) || 3,
@@ -152,11 +175,20 @@ export function createTrackerService(client) {
     },
 
     async saveApplication(form) {
-      const response = await client
+      const row = mapApplicationForm(form);
+      let response = await client
         .from('applications')
-        .upsert(mapApplicationForm(form))
+        .upsert(row)
         .select(APPLICATION_COLUMNS)
         .single();
+      if (missingFailureReason(response.error) && !row.failure_reason) {
+        const { failure_reason: omitted, ...legacyRow } = row;
+        response = await client
+          .from('applications')
+          .upsert(legacyRow)
+          .select(APPLICATION_COLUMNS_WITHOUT_FAILURE)
+          .single();
+      }
       return toViewModel(unwrap(response));
     },
 

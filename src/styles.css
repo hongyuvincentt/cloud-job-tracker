@@ -251,6 +251,54 @@ h1, h2, h3, p { margin-top: 0; }
 .role-card:last-child { border-bottom: 0; }
 .role-main { min-width: 0; }
 .role-title-row { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
+.role-state-row { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+.quick-action-label { display: block; }
+.role-state-control {
+  box-sizing: border-box;
+  width: 9.75rem;
+  min-height: 2.2rem;
+  border-radius: 10px;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+.status-badge.role-state-control {
+  justify-content: center;
+  border: 1px solid #c9e2fb;
+  padding: 0.42rem 0.68rem;
+}
+.next-action-select {
+  border-color: var(--action-border, #d2d2d7);
+  padding: 0.42rem 1.9rem 0.42rem 0.7rem;
+  color: var(--action-color, #1d1d1f);
+  background: var(--action-bg, #fff);
+  font-weight: 650;
+}
+.next-action-select[data-action-tone="assessment"] { --action-color: #0066cc; --action-bg: #eef7ff; --action-border: #b8dcff; }
+.next-action-select[data-action-tone="first"] { --action-color: #7444c2; --action-bg: #f5f0ff; --action-border: #d9c7f7; }
+.next-action-select[data-action-tone="second"] { --action-color: #4156b3; --action-bg: #f0f2ff; --action-border: #cbd2f5; }
+.next-action-select[data-action-tone="hr"] { --action-color: #b23872; --action-bg: #fff1f7; --action-border: #f3c3d9; }
+.next-action-select[data-action-tone="final"] { --action-color: #a85a00; --action-bg: #fff6e8; --action-border: #f1d3a2; }
+.next-action-select[data-action-tone="offer-call"] { --action-color: #007f84; --action-bg: #ecfbfa; --action-border: #aee0dd; }
+.next-action-select[data-action-tone="offer"] { --action-color: #16763b; --action-bg: #edf9f1; --action-border: #b6dfc4; }
+.next-action-select[data-action-tone="failed"] { --action-color: #c5221f; --action-bg: #fff1f0; --action-border: #f0b8b5; }
+.next-action-select option[data-tone="assessment"] { color: #0066cc; }
+.next-action-select option[data-tone="first"] { color: #7444c2; }
+.next-action-select option[data-tone="second"] { color: #4156b3; }
+.next-action-select option[data-tone="hr"] { color: #b23872; }
+.next-action-select option[data-tone="final"] { color: #a85a00; }
+.next-action-select option[data-tone="offer-call"] { color: #007f84; }
+.next-action-select option[data-tone="offer"] { color: #16763b; }
+.next-action-select option[data-tone="failed"] { color: #c5221f; }
+.failure-summary { color: #c5221f; font-weight: 650; }
+.failure-reason-field {
+  padding: 0.9rem;
+  border: 1px solid #f0b8b5;
+  border-radius: 14px;
+  background: #fff7f6;
+}
+.failure-reason-field[hidden] { display: none; }
+.failure-reason-field textarea { background: #fff; }
+.field-hint { color: #86868b; font-size: 0.82rem; font-weight: 500; }
 .role-card h3 { font-size: 1rem; }
 .role-meta, .due, .interview-meta { margin-bottom: 0.32rem; font-size: 0.82rem; }
 .due-overdue { color: #d70015; }
@@ -306,7 +354,9 @@ h1, h2, h3, p { margin-top: 0; }
 
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 1rem; background: rgb(0 0 0 / 42%); backdrop-filter: blur(12px); }
 .modal { width: min(760px, 100%); max-height: calc(100vh - 2rem); overflow-y: auto; padding: clamp(1rem, 3vw, 1.5rem); }
+.modal-compact { width: min(540px, 100%); }
 .modal-header { margin-bottom: 1rem; }
+.modal-subtitle { margin: 0.25rem 0 0; color: #6e6e73; font-size: 0.85rem; }
 .icon-button { min-width: 2.25rem; min-height: 2.25rem; border-color: #d2d2d7; padding: 0.1rem 0.5rem; color: #424245; background: #fff; font-size: 1.4rem; line-height: 1; }
 .record-form { display: grid; gap: 1rem; }
 .record-form .form-message { margin: 0; }
