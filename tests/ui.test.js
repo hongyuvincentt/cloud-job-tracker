@@ -1030,6 +1030,37 @@ describe('the grouped tracker view', () => {
     expect(document.querySelector('[data-sync-status]').textContent).toBe('同步失败，请重试');
   });
 
+  it('keeps the saved homepage action visible when refresh fails after a successful save', async () => {
+    const savedApplication = {
+      ...clone(initialData).applications[0],
+      status: '已录用',
+      nextAction: 'Offer'
+    };
+    const tracker = createTracker({
+      saveApplication: vi.fn().mockResolvedValue(savedApplication)
+    });
+    tracker.loadAll
+      .mockResolvedValueOnce(clone(initialData))
+      .mockRejectedValueOnce(new Error('reload offline'));
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+    await view.mount();
+
+    const quickAction = document.querySelector('[data-application-id="tencent-old"] [name="quick-next-action"]');
+    quickAction.value = 'Offer';
+    quickAction.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+
+    const savedCard = document.querySelector('[data-application-id="tencent-old"]');
+    expect(savedCard.querySelector('[data-role-status]').textContent).toContain('已录用');
+    expect(savedCard.querySelector('[name="quick-next-action"]').value).toBe('Offer');
+    expect(document.querySelector('[data-sync-status]').textContent).toBe('已保存，但刷新失败，请重新加载');
+    expect(document.querySelector('[data-action="retry-reload"]')).not.toBeNull();
+    expect(tracker.saveApplication).toHaveBeenCalledTimes(1);
+  });
+
   it('reloads cloud data before exporting a backup', async () => {
     const tracker = createTracker();
     const confirmedCloudData = {
