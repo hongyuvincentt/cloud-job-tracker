@@ -26,6 +26,7 @@ it('maps an application form to database fields without client-owned columns', a
     applied_date: '2026-09-02',
     status: '已投递',
     next_action: '准备一面',
+    failure_reason: '',
     next_date: '2026-09-09',
     salary: '30k',
     contact: '招聘经理',
@@ -48,6 +49,7 @@ it('maps an application form to database fields without client-owned columns', a
       appliedDate: '2026-09-02',
       status: '已投递',
       nextAction: '准备一面',
+      failureReason: '',
       nextDate: '2026-09-09',
       salary: '30k',
       contact: '招聘经理',
@@ -64,6 +66,7 @@ it('maps an application form to database fields without client-owned columns', a
     company: 'Tencent',
     company_key: 'tencent',
     next_action: '准备一面',
+    failure_reason: '',
     next_date: '2026-09-09',
     tags: ['产品', 'AI']
   }));
@@ -146,6 +149,57 @@ it('keeps core tracker data available before the optional check-in migration is 
     checkins: [],
     checkinsAvailable: false
   });
+});
+
+
+it('keeps core tracker data available when optional check-in tables are not permitted', async () => {
+  const applications = createQuery({ data: [{ id: 'app-1', company: 'Tencent' }], error: null });
+  const interviews = createQuery({ data: [], error: null });
+  const statusHistory = createQuery({ data: [], error: null });
+  const denied = { data: null, error: { code: '42501', message: 'permission denied' } };
+  const dailyGoalSettings = createQuery(denied);
+  const dailyCheckins = createQuery(denied);
+  const client = {
+    from: vi.fn(table => ({
+      applications,
+      interviews,
+      status_history: statusHistory,
+      daily_goal_settings: dailyGoalSettings,
+      daily_checkins: dailyCheckins
+    }[table]))
+  };
+
+  await expect(createTrackerService(client).loadAll()).resolves.toMatchObject({
+    applications: [{ id: 'app-1', company: 'Tencent' }],
+    checkinsAvailable: false
+  });
+});
+
+it('retries application loading without failure_reason when that migration is missing', async () => {
+  const applications = createQuery();
+  applications.order
+    .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column failure_reason does not exist' } })
+    .mockResolvedValueOnce({ data: [{ id: 'app-1', company: 'Tencent', status: '已投递' }], error: null });
+  const interviews = createQuery({ data: [], error: null });
+  const statusHistory = createQuery({ data: [], error: null });
+  const missingTable = { data: null, error: { code: '42P01', message: 'relation does not exist' } };
+  const dailyGoalSettings = createQuery(missingTable);
+  const dailyCheckins = createQuery(missingTable);
+  const client = {
+    from: vi.fn(table => ({
+      applications,
+      interviews,
+      status_history: statusHistory,
+      daily_goal_settings: dailyGoalSettings,
+      daily_checkins: dailyCheckins
+    }[table]))
+  };
+
+  await expect(createTrackerService(client).loadAll()).resolves.toMatchObject({
+    applications: [{ id: 'app-1', company: 'Tencent', status: '已投递' }]
+  });
+  expect(applications.select).toHaveBeenNthCalledWith(1, expect.stringContaining('failure_reason'));
+  expect(applications.select).toHaveBeenNthCalledWith(2, expect.not.stringContaining('failure_reason'));
 });
 
 it('saves a daily target and a dated check-in without accepting a client-owned user id', async () => {
