@@ -293,7 +293,23 @@ h1, h2, h3, p { margin-top: 0; }
 .next-action-select option[data-tone="offer-call"] { color: #007f84; }
 .next-action-select option[data-tone="offer"] { color: #16763b; }
 .next-action-select option[data-tone="failed"] { color: #c5221f; }
-.failure-summary { color: #c5221f; font-weight: 650; }
+.failure-summary {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 1.8rem;
+  gap: 0.18rem;
+  align-items: center;
+  border-radius: 10px;
+  padding: 0.3rem 0.62rem;
+  color: #c5221f;
+  background: #fff1f0;
+  box-shadow: inset 0 0 0 1px rgb(197 34 31 / 8%);
+  font-size: 0.74rem;
+  font-weight: 550;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.failure-summary strong { font-weight: 650; }
 .failure-reason-field {
   padding: 0.9rem;
   border: 1px solid #f0b8b5;
