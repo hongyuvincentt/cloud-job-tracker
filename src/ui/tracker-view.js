@@ -283,6 +283,7 @@ export function createTrackerView(root, {
 
   function renderRole(application) {
     const due = getDueMeta(application.nextDate);
+    const dueText = application.nextAction === '投递失败' ? '无需继续跟进' : due.text;
     const tags = Array.isArray(application.tags) ? application.tags : [];
     const mutationDisabled = initialLoading ? ' disabled' : '';
     return `
@@ -298,11 +299,11 @@ export function createTrackerView(root, {
                   ${nextActionOptions(application.nextAction)}
                 </select>
               </label>
+              ${application.nextAction === '投递失败' && application.failureReason ? `<span class="failure-summary"><strong>失败原因：</strong>${escapeHtml(application.failureReason)}</span>` : ''}
             </div>
           </div>
           <p class="role-meta">${escapeHtml(application.location || '地点未填写')} · ${escapeHtml(application.channel || '渠道未填写')}</p>
-          <p class="due due-${due.state}">跟进：${escapeHtml(due.text)}</p>
-          ${application.nextAction === '投递失败' && application.failureReason ? `<p class="failure-summary">${escapeHtml(nextActionDisplay(application))}</p>` : ''}
+          <p class="due due-${due.state}">跟进：${escapeHtml(dueText)}</p>
           ${tags.length ? `<p class="tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}</p>` : ''}
         </div>
         <div class="card-actions" aria-label="岗位操作">
@@ -451,7 +452,7 @@ export function createTrackerView(root, {
       </section>`;
   }
 
-  function renderQuickFailureModal(application, failureReason = '') {
+  function renderQuickFailureModal(application, failureReason = '', errorMessage = '') {
     return `
       <section class="modal-backdrop" data-modal-backdrop>
         <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="quick-failure-title">
@@ -463,7 +464,7 @@ export function createTrackerView(root, {
             <button type="button" class="icon-button" data-action="close-modal" aria-label="关闭">×</button>
           </header>
           <form data-form="quick-failure" class="record-form" novalidate>
-            <p class="form-message is-error" data-form-error aria-live="polite"></p>
+            <p class="form-message is-error" data-form-error aria-live="polite">${escapeHtml(errorMessage)}</p>
             <label>失败原因
               <textarea name="failureReason" rows="4" required placeholder="例如：笔试未通过、岗位冻结、经验匹配度不足">${escapeHtml(failureReason)}</textarea>
             </label>
@@ -576,7 +577,7 @@ export function createTrackerView(root, {
   function renderModal() {
     if (!modal) return '';
     if (modal.type === 'application') return renderApplicationModal(modal.form);
-    if (modal.type === 'quick-failure') return renderQuickFailureModal(modal.application, modal.failureReason);
+    if (modal.type === 'quick-failure') return renderQuickFailureModal(modal.application, modal.failureReason, modal.error);
     if (modal.type === 'interview') return renderInterviewModal(modal.form);
     if (modal.type === 'details') return renderDetailsModal(modal.application);
     if (modal.type === 'interview-details') return renderInterviewDetailsModal(modal.interview);
@@ -867,9 +868,13 @@ export function createTrackerView(root, {
     let savedApplication;
     try {
       savedApplication = await trackerService.saveApplication(applicationForm(pendingApplication));
-    } catch {
+    } catch (error) {
       if (destroyed) return;
-      syncState = '同步失败，请重试';
+      const message = error?.code === 'FAILURE_REASON_SCHEMA_MISSING'
+        ? '失败原因字段尚未初始化，请先在 Supabase 运行迁移'
+        : '同步失败，请重试';
+      if (modal?.type === 'quick-failure') modal.error = message;
+      syncState = message;
       mutationInFlight = false;
       render();
       return;
