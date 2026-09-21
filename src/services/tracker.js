@@ -76,6 +76,14 @@ function missingFailureReason(error) {
     && String(error?.message ?? '').includes('failure_reason');
 }
 
+function failureReasonSchemaError(cause) {
+  const error = new Error('失败原因字段尚未初始化，请先在 Supabase 运行迁移');
+  error.name = 'FailureReasonSchemaError';
+  error.code = 'FAILURE_REASON_SCHEMA_MISSING';
+  error.cause = cause;
+  return error;
+}
+
 async function loadApplications(client) {
   let response = await client
     .from('applications')
@@ -181,7 +189,8 @@ export function createTrackerService(client) {
         .upsert(row)
         .select(APPLICATION_COLUMNS)
         .single();
-      if (missingFailureReason(response.error) && !row.failure_reason) {
+      if (missingFailureReason(response.error)) {
+        if (row.failure_reason) throw failureReasonSchemaError(response.error);
         const { failure_reason: omitted, ...legacyRow } = row;
         response = await client
           .from('applications')
