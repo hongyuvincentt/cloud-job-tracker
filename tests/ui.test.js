@@ -1353,3 +1353,30 @@ describe('session bootstrap', () => {
     expect(trackerView.destroy).toHaveBeenCalledOnce();
   });
 });
+
+
+describe('failed application homepage summary', () => {
+  it('places the failure reason beside the failed next action', async () => {
+    const failedData = clone(initialData);
+    failedData.applications[0] = {
+      ...failedData.applications[0],
+      status: '已拒绝',
+      nextAction: '投递失败',
+      failureReason: '岗位被冻结',
+      nextDate: ''
+    };
+    const tracker = createTracker({ loadAll: vi.fn().mockResolvedValue(failedData) });
+    const view = createTrackerView(document.querySelector('#app'), {
+      trackerService: tracker,
+      authService: { signOut: vi.fn().mockResolvedValue() }
+    });
+
+    await view.mount();
+
+    const card = document.querySelector('[data-application-id="tencent-old"]');
+    const reason = card.querySelector('.failure-summary');
+    expect(reason.textContent).toBe('失败原因：岗位被冻结');
+    expect(reason.parentElement.classList.contains('role-state-row')).toBe(true);
+    expect(card.querySelector('.due').textContent).toContain('无需继续跟进');
+  });
+});
