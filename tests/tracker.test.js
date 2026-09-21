@@ -277,3 +277,24 @@ it('maps interviews and deletes records by id', async () => {
   await tracker.deleteApplication('application-1');
   expect(deleteQuery.eq).toHaveBeenCalledWith('id', 'application-1');
 });
+
+
+it('reports a clear setup error when failure reasons cannot be stored', async () => {
+  const query = createQuery({
+    data: null,
+    error: { code: '42703', message: 'column failure_reason does not exist' }
+  });
+  const client = { from: vi.fn(() => query) };
+  const tracker = createTrackerService(client);
+
+  await expect(tracker.saveApplication({
+    id: 'application-1',
+    company: 'Tencent',
+    role: '产品经理',
+    status: '已拒绝',
+    nextAction: '投递失败',
+    failureReason: 'AI面未通过'
+  })).rejects.toMatchObject({
+    code: 'FAILURE_REASON_SCHEMA_MISSING'
+  });
+});
