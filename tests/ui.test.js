@@ -1008,7 +1008,7 @@ describe('the grouped tracker view', () => {
       nextAction: '投递失败',
       failureReason: '岗位被冻结'
     }));
-    expect(document.querySelector('[data-application-id="tencent-old"]').textContent).toContain('投递失败【岗位被冻结】');
+    expect(document.querySelector('[data-application-id="tencent-old"] .failure-summary').textContent).toBe('失败原因：岗位被冻结');
   });
 
   it('restores the homepage next action when its cloud save fails', async () => {
